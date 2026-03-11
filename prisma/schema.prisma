@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DB_URL")
+}
+
+enum StreamStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  ENDED
+}
+
+enum QuestionInputType {
+  OPEN
+  WORD_COUNT
+  SCALE
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+}
+
+enum AudienceType {
+  CLASS
+  INDIVIDUAL
+}
+
+enum QuestionStatus {
+  DRAFT
+  LIVE
+  RESULTS
+  CLOSED
+}
+
+model Class {
+  id          String        @id @default(cuid())
+  year        Int
+  section     String
+  displayName String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  streams     StreamClass[]
+
+  @@unique([year, section])
+}
+
+model Stream {
+  id            String        @id @default(cuid())
+  title         String
+  embedUrl      String
+  scheduledAt   DateTime?
+  status        StreamStatus  @default(DRAFT)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  targetClasses StreamClass[]
+  questions     Question[]
+}
+
+model StreamClass {
+  streamId String
+  classId  String
+  stream   Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  class    Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@id([streamId, classId])
+}
+
+model Question {
+  id             String            @id @default(cuid())
+  streamId       String
+  stream         Stream            @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  inputType      QuestionInputType
+  audienceType   AudienceType
+  text           String
+  options        Json?
+  settings       Json?
+  timerSeconds   Int?
+  order          Int               @default(0)
+  status         QuestionStatus    @default(DRAFT)
+  openedAt       DateTime?
+  resultsVisible Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  answers        Answer[]
+}
+
+model Answer {
+  id           String   @id @default(cuid())
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  classYear    Int?
+  classSection String?
+  value        Json
+  createdAt    DateTime @default(now())
+}
+
+model AppSetting {
+  id             String   @id
+  appName        String?
+  appIcon        String?
+  appBgColor     String?
+  appMainColor   String?
+  appLightColor  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
