@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --app-bg: 248 249 250;
+  --app-main: 0 45 97;
+  --app-light: 0 63 135;
+  --app-main-dark: 0 38 82;
+  --app-ink: 0 14 29;
+}
+
+body {
+  @apply min-h-screen bg-cream text-ink antialiased;
+  background-image:
+    radial-gradient(circle at top left, rgb(var(--app-light) / 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgb(var(--app-main) / 0.16), transparent 25%),
+    linear-gradient(180deg, rgb(var(--app-bg)) 0%, rgb(var(--app-bg) / 0.92) 100%);
+}
+
+iframe {
+  border: 0;
+}
