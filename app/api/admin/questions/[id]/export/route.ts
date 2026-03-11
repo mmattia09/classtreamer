@@ -1,0 +1,49 @@
+import { NextResponse } from "next/server";
+
+import { prisma } from "@/lib/prisma";
+import { escapeCsv, formatAnswerValue, formatClassLabel } from "@/lib/export-utils";
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const question = await prisma.question.findUnique({
+    where: { id },
+    include: {
+      stream: true,
+      answers: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!question) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const rows = [
+    ["Stream", "Domanda", "Tipo", "Classe", "Risposta", "Creato il"],
+  ];
+
+  question.answers.forEach((answer) => {
+    rows.push([
+      question.stream?.title ?? "",
+      question.text,
+      question.inputType,
+      formatClassLabel(answer.classYear, answer.classSection),
+      formatAnswerValue(question.inputType, answer.value),
+      answer.createdAt.toISOString(),
+    ]);
+  });
+
+  const csv = rows.map((row) => row.map((value) => escapeCsv(String(value ?? ""))).join(",")).join("\n");
+  const filename = `domanda-${question.id}.csv`;
+
+  return new NextResponse(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
+}
