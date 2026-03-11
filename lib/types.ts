@@ -21,10 +21,16 @@ export type ResultEntry = {
   value: number;
 };
 
+export type AnswerSubmission = {
+  value: string;
+  classLabel?: string | null;
+};
+
 export type ResultsPayload = {
   questionId: string;
   type: QuestionPayload["inputType"];
   totalAnswers: number;
   entries: ResultEntry[];
   latestAnswers?: string[];
+  latestSubmissions?: AnswerSubmission[];
 };

@@ -165,7 +165,17 @@ export function StudentStreamView({
   return (
     <main className="relative min-h-screen bg-ink">
       <section className="fixed inset-0 z-0 flex overflow-hidden">
-        <div className="h-full flex-1">
+        <div className="relative h-full flex-1">
+          <div className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between gap-4">
+            <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
+              Classe {getYearLabel(year)}
+              {section}
+            </div>
+            <div className="flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
+              <span className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-sage" : "bg-terracotta"}`} />
+              {connected ? "Connesso" : "Riconnessione..."}
+            </div>
+          </div>
           {status.status === "no_stream" ? (
             <div className="flex h-full items-center justify-center p-10 text-center text-3xl font-semibold text-white">
               Nessuna stream programmata attualmente
@@ -213,15 +223,6 @@ export function StudentStreamView({
           ) : null}
         </aside>
       </section>
-
-      <div className="fixed left-6 top-6 z-20 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
-        Classe {getYearLabel(year)}
-        {section}
-      </div>
-      <div className="fixed right-6 top-6 z-20 flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
-        <span className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-sage" : "bg-terracotta"}`} />
-        {connected ? "Connesso" : "Riconnessione..."}
-      </div>
 
       {question?.audienceType === "INDIVIDUAL" ? (
         <section className="fixed inset-0 z-30 flex items-center justify-center bg-ink/85 px-6">

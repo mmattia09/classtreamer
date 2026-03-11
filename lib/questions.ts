@@ -1,5 +1,6 @@
 import { AudienceType, Prisma, QuestionInputType, QuestionStatus, StreamStatus } from "@prisma/client";
 
+import { getYearLabel } from "@/lib/classes";
 import { prisma } from "@/lib/prisma";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse } from "@/lib/types";
 
@@ -121,6 +122,44 @@ export async function getActiveQuestion() {
 
 export function buildResults(question: QuestionWithAnswers): ResultsPayload {
   const totalAnswers = question.answers.length;
+  const latestSubmissions = question.answers
+    .slice(-18)
+    .reverse()
+    .map((answer) => {
+      const classLabel =
+        answer.classYear === null || answer.classYear === undefined || !answer.classSection
+          ? null
+          : `${getYearLabel(answer.classYear)}${answer.classSection}`;
+
+      if (question.inputType === QuestionInputType.OPEN || question.inputType === QuestionInputType.WORD_COUNT) {
+        return {
+          value: String((answer.value as { text?: string }).text ?? ""),
+          classLabel,
+        };
+      }
+
+      if (question.inputType === QuestionInputType.SCALE) {
+        return {
+          value: String((answer.value as { value?: number }).value ?? ""),
+          classLabel,
+        };
+      }
+
+      if (question.inputType === QuestionInputType.MULTIPLE_CHOICE) {
+        const values = Array.isArray((answer.value as { values?: string[] }).values)
+          ? ((answer.value as { values?: string[] }).values as string[])
+          : [];
+        return {
+          value: values.join(", "),
+          classLabel,
+        };
+      }
+
+      return {
+        value: String((answer.value as { value?: string }).value ?? ""),
+        classLabel,
+      };
+    });
 
   if (question.inputType === QuestionInputType.OPEN) {
     return {
@@ -132,6 +171,7 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
         .slice(-18)
         .reverse()
         .map((answer) => String((answer.value as { text?: string }).text ?? "")),
+      latestSubmissions,
     };
   }
 
@@ -155,6 +195,7 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
         .map(([label, value]) => ({ label, value }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 20),
+      latestSubmissions,
     };
   }
 
@@ -179,6 +220,7 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
       type: question.inputType,
       totalAnswers,
       entries: Array.from(counts.entries()).map(([label, value]) => ({ label, value })),
+      latestSubmissions,
     };
   }
 
@@ -204,6 +246,7 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
     type: question.inputType,
     totalAnswers,
     entries: Array.from(counts.entries()).map(([label, value]) => ({ label, value })),
+    latestSubmissions,
   };
 }
 

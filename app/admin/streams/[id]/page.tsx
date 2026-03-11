@@ -4,8 +4,10 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { StreamEditor } from "@/components/admin/stream-editor";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { buildAppConfig } from "@/lib/app-config";
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getAppSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,7 @@ export default async function StreamDetailPage({
   }
 
   const { id } = await params;
-  const [classes, stream] = await Promise.all([
+  const [classes, stream, settings] = await Promise.all([
     prisma.class.findMany({
       orderBy: [{ year: "asc" }, { section: "asc" }],
     }),
@@ -32,16 +34,25 @@ export default async function StreamDetailPage({
         },
       },
     }),
+    getAppSettings(),
   ]);
 
   if (!stream) {
     notFound();
   }
 
+  const appConfig = buildAppConfig(settings);
+
   return (
-    <AdminShell title={stream.title} subtitle="Modifica la stream e manda live le domande quando necessario.">
+    <AdminShell appName={appConfig.name} appIcon={appConfig.icon} active="streams">
+      <div className="mb-6">
+        <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Stream</p>
+        <h1 className="text-3xl font-semibold text-ink">{stream.title}</h1>
+        <p className="text-ink/60">Modifica la live e gestisci le domande preparate.</p>
+      </div>
+
       <div className="space-y-6">
-        <Card className="flex flex-wrap gap-3">
+        <Card className="flex flex-wrap gap-3 shadow-none">
           <form action={`/api/admin/streams/${stream.id}/live`} method="post">
             <Button type="submit">Vai live</Button>
           </form>
@@ -78,7 +89,7 @@ export default async function StreamDetailPage({
           }}
         />
 
-        <Card className="space-y-4">
+        <Card className="space-y-4 shadow-none">
           <h2 className="text-2xl font-semibold">Controllo domande</h2>
           <div className="space-y-3">
             {stream.questions.map((question) => (

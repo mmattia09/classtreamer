@@ -38,8 +38,13 @@ export function AdminLoginForm() {
   return (
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-6">
       <Card className="w-full space-y-6">
-        <div className="space-y-2">
+        <div className="flex items-center justify-between">
           <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Tecnico</p>
+          <Button type="button" variant="ghost" onClick={() => router.back()}>
+            Torna indietro
+          </Button>
+        </div>
+        <div className="space-y-2">
           <h1 className="text-4xl font-semibold">Accesso amministratore</h1>
         </div>
 

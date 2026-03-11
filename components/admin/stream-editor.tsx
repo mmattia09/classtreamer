@@ -81,27 +81,39 @@ export function StreamEditor({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <Card className="space-y-4">
-        <h2 className="text-2xl font-semibold">Dettagli stream</h2>
-        <input
-          value={payload.title}
-          onChange={(event) => setPayload((current) => ({ ...current, title: event.target.value }))}
-          className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-          placeholder="Titolo"
-        />
-        <input
-          value={payload.embedUrl}
-          onChange={(event) => setPayload((current) => ({ ...current, embedUrl: event.target.value }))}
-          className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-          placeholder="URL embed"
-        />
-        <input
-          type="datetime-local"
-          value={payload.scheduledAt}
-          onChange={(event) => setPayload((current) => ({ ...current, scheduledAt: event.target.value }))}
-          className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-        />
+    <div className="grid gap-6 xl:grid-cols-[1fr_1.4fr]">
+      <Card className="space-y-5 shadow-none">
+        <div>
+          <h2 className="text-2xl font-semibold">Dettagli live</h2>
+          <p className="text-sm text-ink/60">Imposta titolo, link e data di avvio.</p>
+        </div>
+        <label className="space-y-2 text-sm font-semibold text-ink/70">
+          Titolo della stream
+          <input
+            value={payload.title}
+            onChange={(event) => setPayload((current) => ({ ...current, title: event.target.value }))}
+            className="h-12 w-full rounded-2xl border border-ocean/10 px-4 text-base font-normal"
+            placeholder="Titolo"
+          />
+        </label>
+        <label className="space-y-2 text-sm font-semibold text-ink/70">
+          URL embed
+          <input
+            value={payload.embedUrl}
+            onChange={(event) => setPayload((current) => ({ ...current, embedUrl: event.target.value }))}
+            className="h-12 w-full rounded-2xl border border-ocean/10 px-4 text-base font-normal"
+            placeholder="URL embed"
+          />
+        </label>
+        <label className="space-y-2 text-sm font-semibold text-ink/70">
+          Programmazione
+          <input
+            type="datetime-local"
+            value={payload.scheduledAt}
+            onChange={(event) => setPayload((current) => ({ ...current, scheduledAt: event.target.value }))}
+            className="h-12 w-full rounded-2xl border border-ocean/10 px-4 text-base font-normal"
+          />
+        </label>
         <div className="space-y-3">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-ocean/70">Classi abilitate</p>
           <div className="grid gap-2 md:grid-cols-2">
@@ -131,16 +143,22 @@ export function StreamEditor({
         <Button onClick={save}>Salva stream</Button>
       </Card>
 
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold">Domande preparate</h2>
+      <Card className="space-y-5 shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold">Domande preparate</h2>
+            <p className="text-sm text-ink/60">Ordina e definisci il comportamento di ogni domanda.</p>
+          </div>
           <Button variant="secondary" onClick={addQuestion}>
             Aggiungi domanda
           </Button>
         </div>
         <div className="space-y-4">
           {payload.questions.map((question, index) => (
-            <div key={question.id} className="space-y-3 rounded-3xl border border-ocean/10 p-4">
+            <div key={question.id} className="space-y-3 rounded-3xl border border-ocean/10 bg-white/70 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-ocean/70">Domanda {index + 1}</p>
+              </div>
               <input
                 value={question.text}
                 onChange={(event) =>
@@ -155,53 +173,62 @@ export function StreamEditor({
                 placeholder="Testo domanda"
               />
               <div className="grid gap-3 md:grid-cols-3">
-                <select
-                  value={question.inputType}
-                  onChange={(event) =>
-                    setPayload((current) => ({
-                      ...current,
-                      questions: current.questions.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, inputType: event.target.value } : item,
-                      ),
-                    }))
-                  }
-                  className="h-12 rounded-2xl border border-ocean/10 px-3"
-                >
-                  <option value="OPEN">Aperta</option>
-                  <option value="WORD_COUNT">Word count</option>
-                  <option value="SCALE">Scala</option>
-                  <option value="SINGLE_CHOICE">Scelta singola</option>
-                  <option value="MULTIPLE_CHOICE">Scelta multipla</option>
-                </select>
-                <select
-                  value={question.audienceType}
-                  onChange={(event) =>
-                    setPayload((current) => ({
-                      ...current,
-                      questions: current.questions.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, audienceType: event.target.value } : item,
-                      ),
-                    }))
-                  }
-                  className="h-12 rounded-2xl border border-ocean/10 px-3"
-                >
-                  <option value="CLASS">Classe</option>
-                  <option value="INDIVIDUAL">Individuale</option>
-                </select>
-                <input
-                  type="number"
-                  value={question.timerSeconds ?? 60}
-                  onChange={(event) =>
-                    setPayload((current) => ({
-                      ...current,
-                      questions: current.questions.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, timerSeconds: Number(event.target.value) } : item,
-                      ),
-                    }))
-                  }
-                  className="h-12 rounded-2xl border border-ocean/10 px-3"
-                  placeholder="Timer"
-                />
+                <label className="space-y-1 text-xs font-semibold uppercase tracking-[0.18em] text-ink/50">
+                  Tipo
+                  <select
+                    value={question.inputType}
+                    onChange={(event) =>
+                      setPayload((current) => ({
+                        ...current,
+                        questions: current.questions.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, inputType: event.target.value } : item,
+                        ),
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-ocean/10 px-3 text-sm font-medium text-ink"
+                  >
+                    <option value="OPEN">Aperta</option>
+                    <option value="WORD_COUNT">Word count</option>
+                    <option value="SCALE">Scala</option>
+                    <option value="SINGLE_CHOICE">Scelta singola</option>
+                    <option value="MULTIPLE_CHOICE">Scelta multipla</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs font-semibold uppercase tracking-[0.18em] text-ink/50">
+                  Audience
+                  <select
+                    value={question.audienceType}
+                    onChange={(event) =>
+                      setPayload((current) => ({
+                        ...current,
+                        questions: current.questions.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, audienceType: event.target.value } : item,
+                        ),
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-ocean/10 px-3 text-sm font-medium text-ink"
+                  >
+                    <option value="CLASS">Classe</option>
+                    <option value="INDIVIDUAL">Individuale</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs font-semibold uppercase tracking-[0.18em] text-ink/50">
+                  Timer
+                  <input
+                    type="number"
+                    value={question.timerSeconds ?? 60}
+                    onChange={(event) =>
+                      setPayload((current) => ({
+                        ...current,
+                        questions: current.questions.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, timerSeconds: Number(event.target.value) } : item,
+                        ),
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-ocean/10 px-3 text-sm font-medium text-ink"
+                    placeholder="Timer"
+                  />
+                </label>
               </div>
               {["SINGLE_CHOICE", "MULTIPLE_CHOICE"].includes(question.inputType) ? (
                 <textarea
