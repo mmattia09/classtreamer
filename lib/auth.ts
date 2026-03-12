@@ -8,7 +8,7 @@ function sign(value: string) {
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
 }
 
-export async function createAdminSession() {
+export async function createAdminSession(options?: { secure?: boolean }) {
   const payload = "admin";
   const token = `${payload}.${sign(payload)}`;
 
@@ -16,7 +16,9 @@ export async function createAdminSession() {
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    // In Docker/Compose we often run with NODE_ENV=production on plain HTTP.
+    // Let the caller decide based on request scheme / proxy headers.
+    secure: options?.secure ?? false,
     path: "/",
   });
 }

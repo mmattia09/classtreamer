@@ -12,9 +12,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -54,10 +56,24 @@ services:
     networks:
       - classtreamer
 
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "./node_modules/.bin/prisma", "db", "push"]
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - classtreamer
+
 volumes:
   postgres_data:
   redis_data:
 
 networks:
   classtreamer:
-    internal: true
+    driver: bridge

@@ -1,5 +1,7 @@
 import { APP_BRAND_DEFAULTS } from "@/lib/settings-defaults";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import type { AppSetting } from "@prisma/client";
 
 const SETTINGS_ID = "singleton";
 
@@ -11,23 +13,51 @@ export type AppSettings = {
   appLightColor: string;
 };
 
-async function ensureSettings() {
-  const existing = await prisma.appSetting.findUnique({
-    where: { id: SETTINGS_ID },
-  });
-  if (existing) {
-    return existing;
+let ensureSettingsInFlight: Promise<AppSetting> | null = null;
+
+async function ensureSettings(): Promise<AppSetting> {
+  if (ensureSettingsInFlight) {
+    return ensureSettingsInFlight;
   }
-  return prisma.appSetting.create({
-    data: {
-      id: SETTINGS_ID,
-      appName: APP_BRAND_DEFAULTS.name,
-      appIcon: APP_BRAND_DEFAULTS.icon,
-      appBgColor: APP_BRAND_DEFAULTS.colors.bg,
-      appMainColor: APP_BRAND_DEFAULTS.colors.main,
-      appLightColor: APP_BRAND_DEFAULTS.colors.light,
-    },
-  });
+
+  ensureSettingsInFlight = (async () => {
+    const existing = await prisma.appSetting.findUnique({
+      where: { id: SETTINGS_ID },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      return await prisma.appSetting.create({
+        data: {
+          id: SETTINGS_ID,
+          appName: APP_BRAND_DEFAULTS.name,
+          appIcon: APP_BRAND_DEFAULTS.icon,
+          appBgColor: APP_BRAND_DEFAULTS.colors.bg,
+          appMainColor: APP_BRAND_DEFAULTS.colors.main,
+          appLightColor: APP_BRAND_DEFAULTS.colors.light,
+        },
+      });
+    } catch (error) {
+      // Concurrent requests can race on first boot: one insert wins, the others must re-fetch.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const current = await prisma.appSetting.findUnique({
+          where: { id: SETTINGS_ID },
+        });
+        if (current) {
+          return current;
+        }
+      }
+      throw error;
+    }
+  })();
+
+  try {
+    return await ensureSettingsInFlight;
+  } finally {
+    ensureSettingsInFlight = null;
+  }
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
