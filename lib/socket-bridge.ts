@@ -2,7 +2,16 @@ type SocketServerModule = {
   broadcast?: (event: string, payload: unknown) => void;
 };
 
+type GlobalWithSocket = typeof globalThis & {
+  __socketServer?: SocketServerModule;
+};
+
 function getSocketServer(): SocketServerModule | null {
+  const globalSocket = globalThis as GlobalWithSocket;
+  if (globalSocket.__socketServer) {
+    return globalSocket.__socketServer;
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require("./socket-server.cjs") as SocketServerModule;

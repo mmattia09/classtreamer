@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 import { QuestionInput } from "@/components/question-input";
@@ -34,6 +34,7 @@ export function StudentStreamView({
   const [submitted, setSubmitted] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [countdown, setCountdown] = useState<number | null>(null);
+  const questionRef = useRef<QuestionPayload | null>(initialQuestion);
 
   useEffect(() => {
     localStorage.setItem("classtreamer-class", JSON.stringify({ year, section }));
@@ -92,6 +93,10 @@ export function StudentStreamView({
   }, [year, section]);
 
   useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
+  useEffect(() => {
     const interval = setInterval(async () => {
       const response = await fetch(`/api/streams/current?year=${year}&section=${section}`, { cache: "no-store" });
       const payload = (await response.json()) as StreamStatusResponse;
@@ -100,6 +105,30 @@ export function StudentStreamView({
 
     return () => clearInterval(interval);
   }, [year, section]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const response = await fetch("/api/questions/active", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
+      const current = questionRef.current;
+      if (payload.question?.id !== current?.id) {
+        setQuestion(payload.question);
+        setSubmitted(false);
+      }
+      if (!payload.question && current) {
+        setQuestion(null);
+        setSubmitted(false);
+      }
+      if (payload.results) {
+        setAnswersCount(payload.results.totalAnswers);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (status.status !== "live") {
