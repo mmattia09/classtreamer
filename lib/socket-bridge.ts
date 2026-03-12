@@ -13,7 +13,6 @@ function getSocketServer(): SocketServerModule | null {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require("./socket-server.cjs") as SocketServerModule;
   } catch {
     return null;
