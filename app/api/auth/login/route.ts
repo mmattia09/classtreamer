@@ -16,6 +16,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await createAdminSession();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.toLowerCase();
+  const isHttps = forwardedProto === "https" || new URL(request.url).protocol === "https:";
+  const secureOverride = process.env.SESSION_COOKIE_SECURE?.trim().toLowerCase();
+  const secure =
+    secureOverride === "true" ? true : secureOverride === "false" ? false : isHttps;
+
+  await createAdminSession({ secure });
   return NextResponse.json({ ok: true });
 }
