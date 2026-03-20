@@ -2,15 +2,17 @@
   "name": "classtreamer",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.3.10",
   "scripts": {
-    "dev": "node server.js",
-    "build": "prisma generate && next build",
-    "start": "NODE_ENV=production node server.js",
+    "dev": "bun server.js",
+    "dev:start": "bun ./scripts/devstart.mjs",
+    "build": "bun run prisma:generate && next build",
+    "start": "NODE_ENV=production bun server.js",
     "lint": "next lint",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy",
-    "prisma:push": "prisma db push",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:generate": "bun ./scripts/with-derived-env.mjs bunx prisma generate",
+    "prisma:migrate": "bun ./scripts/with-derived-env.mjs bunx prisma migrate deploy",
+    "prisma:push": "bun ./scripts/with-derived-env.mjs bunx prisma db push",
+    "prisma:seed": "bun ./scripts/with-derived-env.mjs bunx tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -69,9 +70,12 @@ export function ClassSelection({ initialClasses, initialSettings: _initialSettin
       <div className="flex-1 space-y-8">
         <header className="flex flex-col items-center gap-4 text-center">
           {branding.icon ? (
-            <img
+            <Image
               src={branding.icon}
               alt={`Logo ${branding.name}`}
+              width={64}
+              height={64}
+              unoptimized
               className="h-16 w-16 rounded-2xl object-contain shadow-soft"
             />
           ) : null}

@@ -34,3 +34,13 @@ export type ResultsPayload = {
   latestAnswers?: string[];
   latestSubmissions?: AnswerSubmission[];
 };
+
+export type ViewerQuestionPayload = {
+  id: string;
+  streamId: string | null;
+  streamTitle: string | null;
+  text: string;
+  classYear: number | null;
+  classSection: string | null;
+  createdAt: string;
+};

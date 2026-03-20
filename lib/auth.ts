@@ -3,9 +3,17 @@ import { cookies } from "next/headers";
 
 const SESSION_COOKIE = "classtreamer-admin";
 
+function getAdminPasswordFingerprint() {
+  const adminPassword = process.env.ADMIN_PASSWORD ?? "";
+  return crypto.createHash("sha256").update(adminPassword).digest("hex");
+}
+
 function sign(value: string) {
   const secret = process.env.SESSION_SECRET ?? "dev-secret";
-  return crypto.createHmac("sha256", secret).update(value).digest("hex");
+  return crypto
+    .createHmac("sha256", `${secret}:${getAdminPasswordFingerprint()}`)
+    .update(value)
+    .digest("hex");
 }
 
 export async function createAdminSession(options?: { secure?: boolean }) {

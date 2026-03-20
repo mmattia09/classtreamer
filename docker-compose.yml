@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     env_file:
       - .env
     depends_on:
@@ -32,6 +32,8 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"     # Can be removed if you don't need to access the database from outside the Docker network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -44,6 +46,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"     # Can be removed if you don't need to access Redis from outside the Docker network
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -60,7 +64,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["node", "./node_modules/.bin/prisma", "db", "push"]
+    command: ["bun", "run", "prisma:push"]
     env_file:
       - .env
     depends_on:

@@ -17,6 +17,14 @@ export function ResultsEmbedClient({
   const [results, setResults] = useState(initialResults);
 
   useEffect(() => {
+    const previousBodyBackground = document.body.style.background;
+    const previousBodyBackgroundImage = document.body.style.backgroundImage;
+    const previousHtmlBackground = document.documentElement.style.background;
+
+    document.body.style.background = "transparent";
+    document.body.style.backgroundImage = "none";
+    document.documentElement.style.background = "transparent";
+
     const socket = getSocket();
 
     socket.on("question:push", (payload: QuestionPayload) => setQuestion(payload));
@@ -27,6 +35,9 @@ export function ResultsEmbedClient({
     socket.on("results:update", (payload: ResultsPayload) => setResults(payload));
 
     return () => {
+      document.body.style.background = previousBodyBackground;
+      document.body.style.backgroundImage = previousBodyBackgroundImage;
+      document.documentElement.style.background = previousHtmlBackground;
       socket.off("question:push");
       socket.off("question:close");
       socket.off("results:update");

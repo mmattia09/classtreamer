@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Check, SendHorizontal, X } from "lucide-react";
 import QRCode from "qrcode";
 
 import { QuestionInput } from "@/components/question-input";
@@ -19,6 +21,11 @@ type Props = {
   baseUrl: string;
 };
 
+type ViewerQuestionContentState = "compact" | "expanded" | "none";
+
+const VIEWER_QUESTION_CONTENT_SWAP_DELAY_MS = 140;
+const VIEWER_QUESTION_CONTAINER_TRANSITION_MS = 300;
+
 export function StudentStreamView({
   year,
   section,
@@ -34,18 +41,28 @@ export function StudentStreamView({
   const [submitted, setSubmitted] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [viewerQuestionExpanded, setViewerQuestionExpanded] = useState(false);
+  const [viewerQuestionContentState, setViewerQuestionContentState] =
+    useState<ViewerQuestionContentState>("compact");
+  const [viewerQuestionText, setViewerQuestionText] = useState("");
+  const [viewerQuestionSubmitting, setViewerQuestionSubmitting] = useState(false);
+  const [viewerQuestionFeedback, setViewerQuestionFeedback] = useState("");
+  const [viewerQuestionSuccess, setViewerQuestionSuccess] = useState(false);
+  const [viewerQuestionNoLiveError, setViewerQuestionNoLiveError] = useState(false);
   const questionRef = useRef<QuestionPayload | null>(initialQuestion);
+  const viewerQuestionContentTimeoutRef = useRef<number | null>(null);
+  const answerUrl = useMemo(() => new URL("/answer", `${baseUrl}/`).toString(), [baseUrl]);
 
   useEffect(() => {
     localStorage.setItem("classtreamer-class", JSON.stringify({ year, section }));
   }, [year, section]);
 
   useEffect(() => {
-    QRCode.toDataURL(`${baseUrl}/answer`, {
+    QRCode.toDataURL(answerUrl, {
       width: 360,
       margin: 1,
     }).then(setQrDataUrl);
-  }, [baseUrl]);
+  }, [answerUrl]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -158,9 +175,61 @@ export function StudentStreamView({
     return () => clearInterval(interval);
   }, [question]);
 
+  useEffect(() => {
+    if (!viewerQuestionSuccess && !viewerQuestionNoLiveError) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setViewerQuestionSuccess(false);
+      setViewerQuestionNoLiveError(false);
+    }, 1800);
+
+    return () => clearTimeout(timeout);
+  }, [viewerQuestionSuccess, viewerQuestionNoLiveError]);
+
+  useEffect(() => {
+    return () => {
+      if (viewerQuestionContentTimeoutRef.current !== null) {
+        window.clearTimeout(viewerQuestionContentTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function clearViewerQuestionAnimationTimeouts() {
+    if (viewerQuestionContentTimeoutRef.current !== null) {
+      window.clearTimeout(viewerQuestionContentTimeoutRef.current);
+      viewerQuestionContentTimeoutRef.current = null;
+    }
+  }
+
+  function openViewerQuestion() {
+    clearViewerQuestionAnimationTimeouts();
+    setViewerQuestionExpanded(true);
+    setViewerQuestionContentState("none");
+    setViewerQuestionFeedback("");
+    setViewerQuestionSuccess(false);
+    setViewerQuestionNoLiveError(false);
+
+    viewerQuestionContentTimeoutRef.current = window.setTimeout(() => {
+      setViewerQuestionContentState("expanded");
+      viewerQuestionContentTimeoutRef.current = null;
+    }, VIEWER_QUESTION_CONTENT_SWAP_DELAY_MS);
+  }
+
+  function closeViewerQuestion() {
+    clearViewerQuestionAnimationTimeouts();
+    setViewerQuestionExpanded(false);
+    setViewerQuestionContentState("compact");
+    setViewerQuestionFeedback("");
+  }
+
   const showQuestionPanel = useMemo(() => {
-    if (!question || question.audienceType !== "CLASS") {
+    if (!question) {
       return false;
+    }
+    if (question.audienceType === "INDIVIDUAL") {
+      return true;
     }
     if (submitted) {
       return false;
@@ -191,15 +260,78 @@ export function StudentStreamView({
     setSubmitted(true);
   }
 
+  async function submitViewerQuestion() {
+    const text = viewerQuestionText.trim();
+    if (!text || viewerQuestionSubmitting) {
+      return;
+    }
+
+    setViewerQuestionSubmitting(true);
+    setViewerQuestionFeedback("");
+
+    try {
+      const streamId = status.status === "live" ? status.streamId : null;
+      const response = await fetch("/api/audience-questions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          classYear: year,
+          classSection: section,
+          streamId,
+        }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          const retryAfter = response.headers.get("Retry-After");
+          setViewerQuestionFeedback(
+            retryAfter
+              ? `Troppi invii. Riprova tra ${retryAfter} secondi.`
+              : "Troppi invii ravvicinati.",
+          );
+          return;
+        }
+
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        const errorMessage = payload?.error ?? "Invio non riuscito.";
+
+        if (errorMessage === "Nessuna live attiva") {
+          closeViewerQuestion();
+          setViewerQuestionFeedback("");
+          setViewerQuestionNoLiveError(true);
+          return;
+        }
+
+        setViewerQuestionFeedback(errorMessage);
+        return;
+      }
+
+      setViewerQuestionText("");
+      closeViewerQuestion();
+      setViewerQuestionFeedback("");
+      setViewerQuestionSuccess(true);
+      setViewerQuestionNoLiveError(false);
+    } finally {
+      setViewerQuestionSubmitting(false);
+    }
+  }
+
   return (
     <main className="relative min-h-screen bg-ink">
       <section className="fixed inset-0 z-0 flex overflow-hidden">
         <div className="relative h-full flex-1">
           <div className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between gap-4">
-            <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft transition-transform duration-200 hover:-translate-y-0.5"
+            >
+              <ArrowLeft className="h-4 w-4" />
               Classe {getYearLabel(year)}
               {section}
-            </div>
+            </Link>
             <div className="flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
               <span className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-sage" : "bg-terracotta"}`} />
               {connected ? "Connesso" : "Riconnessione..."}
@@ -228,8 +360,8 @@ export function StudentStreamView({
         <aside
           className={`h-full overflow-hidden bg-white/95 shadow-2xl transition-[width,transform,opacity] duration-500 ease-out ${
             showQuestionPanel
-              ? "w-1/3 translate-x-0 opacity-100 border-l border-white/10 p-6"
-              : "w-0 translate-x-full opacity-0 pointer-events-none border-l-0 p-0"
+              ? "w-1/3 translate-x-0 border-l border-white/10 p-6 opacity-100"
+              : "pointer-events-none w-0 translate-x-full border-l-0 p-0 opacity-0"
           }`}
         >
           {question?.audienceType === "CLASS" ? (
@@ -250,30 +382,126 @@ export function StudentStreamView({
               </div>
             </div>
           ) : null}
+
+          {question?.audienceType === "INDIVIDUAL" ? (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">Partecipa dal telefono</p>
+              <h2 className="mt-3 text-3xl font-semibold text-ink">{question.text}</h2>
+              {qrDataUrl ? (
+                <Image
+                  src={qrDataUrl}
+                  alt="QR code per rispondere"
+                  width={288}
+                  height={288}
+                  unoptimized
+                  className="mt-8 w-72 rounded-[28px] border border-ocean/10 bg-white p-4 shadow-soft"
+                />
+              ) : null}
+              <p className="mt-6 break-all rounded-2xl bg-ocean/5 px-4 py-3 text-lg text-ink/70">{answerUrl}</p>
+              <p className="mt-4 text-xl font-semibold text-ocean">Risposte ricevute: {answersCount}</p>
+            </div>
+          ) : null}
         </aside>
       </section>
 
-      {question?.audienceType === "INDIVIDUAL" ? (
-        <section className="fixed inset-0 z-30 flex items-center justify-center bg-ink/85 px-6">
-          <div className="w-full max-w-3xl rounded-[32px] bg-white p-8 text-center shadow-soft">
-            <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Partecipa dal telefono</p>
-            <h2 className="mt-2 text-3xl font-semibold">{question.text}</h2>
-            {qrDataUrl ? (
-              <Image
-                src={qrDataUrl}
-                alt="QR code per rispondere"
-                width={288}
-                height={288}
-                unoptimized
-                className="mx-auto mt-6 w-72"
-              />
-            ) : null}
-            <p className="mt-4 text-lg text-ink/70">{baseUrl}/answer</p>
-            <p className="mt-3 text-xl font-semibold text-ocean">Risposte ricevute: {answersCount}</p>
-          </div>
-        </section>
-      ) : null}
+      <div
+        className={`pointer-events-none fixed bottom-6 z-40 flex justify-center px-4 transition-[left,right] duration-500 ease-out ${
+          showQuestionPanel ? "left-0 right-[33.333333%]" : "inset-x-0"
+        }`}
+      >
+        <div className="pointer-events-auto flex w-full flex-col items-center">
+          <div
+            className={`relative overflow-hidden bg-white shadow-2xl transition-[width,height,border-radius,padding] duration-300 ease-out ${
+              viewerQuestionExpanded
+                ? "h-[72px] rounded-[30px] p-3"
+                : "h-14 rounded-full p-0"
+            }`}
+            style={{ width: viewerQuestionExpanded ? "min(48rem, 100%)" : "230px" }}
+          >
+            <button
+              type="button"
+              onClick={openViewerQuestion}
+              className={`absolute inset-0 flex items-center justify-center overflow-hidden rounded-full px-6 text-sm font-semibold text-ocean transition-opacity duration-200 ${
+                viewerQuestionContentState === "compact"
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0"
+              }`}
+              style={{
+                transitionDelay:
+                  viewerQuestionContentState === "compact" && !viewerQuestionExpanded
+                    ? `${VIEWER_QUESTION_CONTAINER_TRANSITION_MS}ms`
+                    : "0ms",
+              }}
+            >
+              <span
+                className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
+                  viewerQuestionSuccess || viewerQuestionNoLiveError ? "opacity-0" : "opacity-100"
+                }`}
+              >
+                Fai una domanda →
+              </span>
+              <span
+                className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
+                  viewerQuestionSuccess ? "opacity-100" : "opacity-0"
+                }`}
+              >
+                <Check className="h-5 w-5" />
+              </span>
+              <span
+                className={`absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-terracotta transition-opacity duration-300 ${
+                  viewerQuestionNoLiveError ? "opacity-100" : "opacity-0"
+                }`}
+              >
+                <X className="h-5 w-5" />
+                <span>Nessuna live attiva</span>
+              </span>
+              <span className="opacity-0">Fai una domanda →</span>
+            </button>
 
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitViewerQuestion();
+              }}
+              className={`absolute inset-0 flex items-center gap-3 p-3 transition-[opacity,transform] duration-300 ${
+                viewerQuestionContentState === "expanded"
+                  ? "translate-y-0 opacity-100"
+                  : "pointer-events-none translate-y-2 opacity-0"
+              }`}
+            >
+              <input
+                value={viewerQuestionText}
+                onChange={(event) => setViewerQuestionText(event.target.value)}
+                placeholder="Scrivi qui la tua domanda"
+                className="h-12 flex-1 rounded-full bg-transparent px-5 text-base text-ink outline-none ring-ocean/20 transition focus:ring-4"
+                maxLength={280}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeViewerQuestion}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200"
+                  aria-label="Chiudi"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <button
+                  type="submit"
+                  disabled={viewerQuestionSubmitting || !viewerQuestionText.trim()}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-ocean text-white shadow-soft transition-transform duration-200 hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-50"
+                  aria-label="Invia domanda"
+                >
+                  <SendHorizontal className="h-5 w-5" />
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {viewerQuestionFeedback ? (
+            <p className="mt-2 px-5 text-sm text-terracotta">{viewerQuestionFeedback}</p>
+          ) : null}
+        </div>
+      </div>
     </main>
   );
 }

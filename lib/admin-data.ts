@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getActiveQuestion, getCurrentStreamStatus, getResultsForQuestion } from "@/lib/questions";
+import type { ViewerQuestionPayload } from "@/lib/types";
 
 export type StreamSummary = {
   id: string;
@@ -39,6 +40,8 @@ export type QuestionArchiveEntry = {
   createdAt: string;
   streamTitle: string | null;
 };
+
+export type ViewerQuestionSummary = ViewerQuestionPayload;
 
 export async function getAdminOverview() {
   const streamStatus = await getCurrentStreamStatus();
@@ -112,6 +115,26 @@ export async function getAdminOverview() {
     streamTitle: question.stream?.title ?? null,
   }));
 
+  const viewerQuestions: ViewerQuestionSummary[] = (
+    await prisma.viewerQuestion.findMany({
+      include: {
+        stream: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 20,
+    })
+  ).map((entry) => ({
+    id: entry.id,
+    streamId: entry.streamId,
+    streamTitle: entry.stream?.title ?? null,
+    text: entry.text,
+    classYear: entry.classYear ?? null,
+    classSection: entry.classSection ?? null,
+    createdAt: entry.createdAt.toISOString(),
+  }));
+
   return {
     streamStatus,
     activeQuestion,
@@ -127,5 +150,6 @@ export async function getAdminOverview() {
       drafts: streamSummaries.filter((stream) => stream.status === "DRAFT"),
     },
     questionArchive,
+    viewerQuestions,
   };
 }

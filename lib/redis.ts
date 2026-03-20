@@ -1,14 +1,19 @@
 import Redis from "ioredis";
 
+import { getRedisUrl } from "@/lib/server-config";
+
 const globalForRedis = globalThis as unknown as {
   redis?: Redis;
 };
 
 export const redis =
   globalForRedis.redis ??
-  new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
-    maxRetriesPerRequest: null,
+  new Redis(getRedisUrl(), {
+    commandTimeout: 1000,
+    connectTimeout: 1000,
+    enableOfflineQueue: false,
     lazyConnect: true,
+    maxRetriesPerRequest: 1,
   });
 
 if (process.env.NODE_ENV !== "production") {

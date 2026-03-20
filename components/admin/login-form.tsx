@@ -1,7 +1,9 @@
 "use client";
 
 import type { FormEvent } from "react";
+import Link from "next/link";
 import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,7 +28,16 @@ export function AdminLoginForm() {
     });
 
     if (!response.ok) {
-      setError("Password non valida");
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("Retry-After");
+        setError(
+          retryAfter
+            ? `Troppi tentativi. Riprova tra ${retryAfter} secondi.`
+            : "Troppi tentativi. Riprova tra poco.",
+        );
+      } else {
+        setError("Password non valida");
+      }
       setLoading(false);
       return;
     }
@@ -40,8 +51,11 @@ export function AdminLoginForm() {
       <Card className="w-full space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Tecnico</p>
-          <Button type="button" variant="ghost" onClick={() => router.back()}>
-            Torna indietro
+          <Button asChild variant="ghost" className="gap-2">
+            <Link href="/">
+              <ArrowLeft className="h-4 w-4" />
+              Torna alle classi
+            </Link>
           </Button>
         </div>
         <div className="space-y-2">

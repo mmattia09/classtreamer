@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getResultsForQuestion, mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
+import { getPublicUrl } from "@/lib/server-config";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
@@ -38,5 +39,5 @@ export async function POST(
   broadcast("question:push", mapQuestion(question));
   broadcast("results:update", await getResultsForQuestion(question.id));
 
-  return NextResponse.redirect(new URL(`/admin/streams/${target.streamId}`, process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"), 303);
+  return NextResponse.redirect(new URL(`/admin/streams/${target.streamId}`, getPublicUrl()), 303);
 }

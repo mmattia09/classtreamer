@@ -23,7 +23,7 @@ export function AdminShell({
       <header className="fixed inset-x-0 top-0 z-40 border-b border-ocean/10 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between px-6">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
               {appIcon ? (
                 <Image
                   src={appIcon}
@@ -39,7 +39,7 @@ export function AdminShell({
                 </div>
               )}
               <span className="text-base font-semibold text-ink">{appName}</span>
-            </div>
+            </Link>
             <nav className="ml-6 flex items-center gap-4 text-sm font-semibold text-ink/65">
               <Link
                 href="/admin/dashboard"
