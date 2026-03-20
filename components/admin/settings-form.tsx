@@ -127,7 +127,6 @@ export function AdminSettingsForm({
                 className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
                 aria-label="Selettore colore sfondo"
               />
-              <span className="h-10 w-10 rounded-xl border border-ocean/10" style={{ backgroundColor: appBgColor }} />
             </div>
           </div>
           <div className="space-y-2">
@@ -147,7 +146,6 @@ export function AdminSettingsForm({
                 className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
                 aria-label="Selettore colore principale"
               />
-              <span className="h-10 w-10 rounded-xl border border-ocean/10" style={{ backgroundColor: appMainColor }} />
             </div>
           </div>
           <div className="space-y-2">
@@ -167,7 +165,6 @@ export function AdminSettingsForm({
                 className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
                 aria-label="Selettore colore secondario"
               />
-              <span className="h-10 w-10 rounded-xl border border-ocean/10" style={{ backgroundColor: appLightColor }} />
             </div>
           </div>
         </div>

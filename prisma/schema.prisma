@@ -56,6 +56,7 @@ model Stream {
   updatedAt     DateTime      @updatedAt
   targetClasses StreamClass[]
   questions     Question[]
+  viewerQuestions ViewerQuestion[]
 }
 
 model StreamClass {
@@ -105,4 +106,16 @@ model AppSetting {
   appLightColor  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model ViewerQuestion {
+  id           String   @id @default(cuid())
+  streamId     String?
+  stream       Stream?  @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  classYear    Int?
+  classSection String?
+  text         String
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
 }

@@ -2,12 +2,14 @@
 
 import { io, type Socket } from "socket.io-client";
 
+import { SOCKET_PATH } from "@/lib/app-constants";
+
 let socket: Socket | null = null;
 
 export function getSocket() {
   if (!socket) {
     socket = io({
-      path: process.env.NEXT_PUBLIC_SOCKET_PATH ?? "/socket.io",
+      path: SOCKET_PATH,
       autoConnect: true,
     });
   }

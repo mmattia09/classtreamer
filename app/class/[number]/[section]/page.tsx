@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { StudentStreamView } from "@/components/stream/student-stream-view";
 import { getActiveQuestion, getCurrentStreamStatus, getResultsForQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
+import { getPublicUrl } from "@/lib/server-config";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function ClassStreamPage({
       initialStatus={status}
       initialQuestion={question}
       initialResults={results}
-      baseUrl={process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"}
+      baseUrl={getPublicUrl()}
     />
   );
 }

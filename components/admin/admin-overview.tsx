@@ -6,8 +6,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
-import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
-import type { QuestionPayload, ResultsPayload, StreamStatusResponse } from "@/lib/types";
+import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary, ViewerQuestionSummary } from "@/lib/admin-data";
+import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
 type ClassesEntry = {
@@ -34,6 +34,7 @@ type OverviewPayload = {
     drafts: StreamSummary[];
   };
   questionArchive: QuestionArchiveEntry[];
+  viewerQuestions: ViewerQuestionSummary[];
 };
 
 type QuestionDraft = {
@@ -57,6 +58,14 @@ function sortClassEntries(a: ClassesEntry, b: ClassesEntry) {
   return a.section.localeCompare(b.section);
 }
 
+function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
+  if (entry.classYear === null || !entry.classSection) {
+    return "Pubblico";
+  }
+
+  return `${getYearLabel(entry.classYear)}${entry.classSection}`;
+}
+
 export function AdminOverview({
   initialOverview,
   initialClasses,
@@ -74,6 +83,7 @@ export function AdminOverview({
   const [results, setResults] = useState(initialOverview.results);
   const [classes, setClasses] = useState(initialClasses);
   const [viewerCounts, setViewerCounts] = useState<ViewerCount[]>([]);
+  const [viewerQuestions, setViewerQuestions] = useState(initialOverview.viewerQuestions);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(
     initialOverview.activeQuestion?.id ?? initialOverview.currentStream?.questions?.[0]?.id ?? null,
   );
@@ -104,6 +114,7 @@ export function AdminOverview({
       setCurrentStream(payload.currentStream);
       setStreams(payload.streams);
       setQuestionArchive(payload.questionArchive);
+      setViewerQuestions(payload.viewerQuestions);
       setActiveQuestion(payload.activeQuestion);
       setResults(payload.results);
     });
@@ -114,6 +125,9 @@ export function AdminOverview({
     socket.emit("admin:join");
     socket.on("viewer:count", (payload: ViewerCount[]) => setViewerCounts(payload));
     socket.on("classes:update", (payload: ClassesEntry[]) => setClasses(payload));
+    socket.on("viewer-question:new", (payload: ViewerQuestionPayload) => {
+      setViewerQuestions((current) => [payload, ...current.filter((entry) => entry.id !== payload.id)].slice(0, 20));
+    });
     socket.on("results:update", (payload: ResultsPayload) => {
       setResults(payload);
       if (selectedQuestionRef.current === payload.questionId) {
@@ -143,6 +157,7 @@ export function AdminOverview({
     return () => {
       socket.off("viewer:count");
       socket.off("classes:update");
+      socket.off("viewer-question:new");
       socket.off("results:update");
       socket.off("question:push");
       socket.off("question:close");
@@ -178,7 +193,7 @@ export function AdminOverview({
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [selectedQuestionId, results?.questionId]);
+  }, [selectedQuestionId, results, results?.questionId]);
 
   useEffect(() => {
     const interval = setInterval(refreshOverview, 12000);
@@ -625,6 +640,37 @@ export function AdminOverview({
         </div>
 
         <aside className="space-y-6">
+          <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold">Domande dal pubblico</h2>
+                <p className="text-sm text-ink/60">Messaggi inviati dalla pill in basso durante la stream.</p>
+              </div>
+              <span className="rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean">
+                {viewerQuestions.length}
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {viewerQuestions.length ? (
+                viewerQuestions.map((entry) => (
+                  <div key={entry.id} className="rounded-2xl border border-ocean/10 bg-white/80 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-semibold text-ink">{formatViewerQuestionClassLabel(entry)}</p>
+                      <p className="text-xs text-ink/50">{formatDateTime(entry.createdAt)}</p>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-ink/80">{entry.text}</p>
+                    {entry.streamTitle ? (
+                      <p className="mt-2 text-xs text-ink/50">Stream: {entry.streamTitle}</p>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-ink/50">Nessuna domanda dal pubblico ricevuta.</p>
+              )}
+            </div>
+          </section>
+
           <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
             <h2 className="text-2xl font-semibold">Classi connesse</h2>
             <p className="text-sm text-ink/60">Elenco live con priorità alle classi scollegate.</p>

@@ -2,6 +2,7 @@ import { QuestionStatus, StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { getPublicUrl } from "@/lib/server-config";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
@@ -22,5 +23,5 @@ export async function POST(
   broadcast("stream:status", { status: "no_stream" });
   broadcast("question:close", {});
 
-  return NextResponse.redirect(new URL(`/admin/streams/${id}`, process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"), 303);
+  return NextResponse.redirect(new URL(`/admin/streams/${id}`, getPublicUrl()), 303);
 }
