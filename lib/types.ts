@@ -1,7 +1,7 @@
 export type StreamStatusResponse =
   | { status: "no_stream" }
   | { status: "scheduled"; embedUrl?: string; streamId: string; title: string; scheduledAt?: string | null }
-  | { status: "live"; embedUrl: string; streamId: string; title: string };
+  | { status: "live"; embedUrl: string; streamId: string; title: string; liveStartedAt?: string | null };
 
 export type QuestionPayload = {
   id: string;

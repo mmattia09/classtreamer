@@ -1,27 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { Bell, Clock3, MonitorPlay, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
-import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary, ViewerQuestionSummary } from "@/lib/admin-data";
+import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
-
-type ClassesEntry = {
-  year: number;
-  section: string;
-  displayName?: string | null;
-};
-
-type ViewerCount = {
-  year: number;
-  section: string;
-  count: number;
-  ips: string[];
-};
 
 type OverviewPayload = {
   streamStatus: StreamStatusResponse;
@@ -34,7 +22,7 @@ type OverviewPayload = {
     drafts: StreamSummary[];
   };
   questionArchive: QuestionArchiveEntry[];
-  viewerQuestions: ViewerQuestionSummary[];
+  viewerQuestions: ViewerQuestionPayload[];
 };
 
 type QuestionDraft = {
@@ -45,18 +33,12 @@ type QuestionDraft = {
   options: string;
 };
 
-function formatClassLabel(entry: ClassesEntry) {
-  return entry.displayName ?? `${getYearLabel(entry.year)}${entry.section}`;
-}
-
-function sortClassEntries(a: ClassesEntry, b: ClassesEntry) {
-  const yearA = a.year === 0 ? 99 : a.year;
-  const yearB = b.year === 0 ? 99 : b.year;
-  if (yearA !== yearB) {
-    return yearA - yearB;
-  }
-  return a.section.localeCompare(b.section);
-}
+type DashboardNotification = {
+  id: number;
+  title: string;
+  description?: string;
+  tone: "info" | "success" | "warning";
+};
 
 function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
   if (entry.classYear === null || !entry.classSection) {
@@ -66,13 +48,93 @@ function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
   return `${getYearLabel(entry.classYear)}${entry.classSection}`;
 }
 
+function formatLiveElapsed(startedAt: string | null | undefined, now: number) {
+  if (!startedAt) {
+    return "00:00";
+  }
+
+  const elapsedMs = Math.max(0, now - new Date(startedAt).getTime());
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getStreamStatusBadge(status: StreamStatusResponse["status"]) {
+  if (status === "live") {
+    return "bg-terracotta/15 text-terracotta";
+  }
+
+  if (status === "scheduled") {
+    return "bg-gold/20 text-ocean";
+  }
+
+  return "bg-slate-200 text-slate-700";
+}
+
+function getNotificationToneClasses(tone: DashboardNotification["tone"]) {
+  if (tone === "success") {
+    return "border-sage/25 bg-white text-ink";
+  }
+
+  if (tone === "warning") {
+    return "border-terracotta/25 bg-white text-ink";
+  }
+
+  return "border-ocean/15 bg-white text-ink";
+}
+
+function LiveStatusPill({
+  status,
+  startedAt,
+}: {
+  status: StreamStatusResponse["status"];
+  startedAt?: string | null;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || status !== "live" || !startedAt) {
+      setNow(null);
+      return;
+    }
+
+    setNow(Date.now());
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [mounted, startedAt, status]);
+
+  const label = status === "live" ? "In onda" : status === "scheduled" ? "Programmata" : "Offline";
+  const elapsed = mounted && now !== null && status === "live" && startedAt ? formatLiveElapsed(startedAt, now) : null;
+
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] ${getStreamStatusBadge(status)}`}>
+      {status === "live" ? <Clock3 className="h-4 w-4" /> : null}
+      <span>{label}</span>
+      {elapsed ? <span className="text-[11px] tracking-[0.14em]">{elapsed}</span> : null}
+    </span>
+  );
+}
+
 export function AdminOverview({
   initialOverview,
-  initialClasses,
   focusSection,
 }: {
   initialOverview: OverviewPayload;
-  initialClasses: ClassesEntry[];
   focusSection?: string;
 }) {
   const [streamStatus, setStreamStatus] = useState(initialOverview.streamStatus);
@@ -81,9 +143,6 @@ export function AdminOverview({
   const [questionArchive, setQuestionArchive] = useState(initialOverview.questionArchive);
   const [activeQuestion, setActiveQuestion] = useState(initialOverview.activeQuestion);
   const [results, setResults] = useState(initialOverview.results);
-  const [classes, setClasses] = useState(initialClasses);
-  const [viewerCounts, setViewerCounts] = useState<ViewerCount[]>([]);
-  const [viewerQuestions, setViewerQuestions] = useState(initialOverview.viewerQuestions);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(
     initialOverview.activeQuestion?.id ?? initialOverview.currentStream?.questions?.[0]?.id ?? null,
   );
@@ -96,12 +155,33 @@ export function AdminOverview({
     timerSeconds: 60,
     options: "",
   });
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+  const [selectedResultsLoading, setSelectedResultsLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const selectedQuestionRef = useRef(selectedQuestionId);
+  const notificationIdRef = useRef(0);
+  const notificationTimeoutsRef = useRef<number[]>([]);
+  const resultsCacheRef = useRef(
+    new Map<string, ResultsPayload>(initialOverview.results ? [[initialOverview.results.questionId, initialOverview.results]] : []),
+  );
 
   useEffect(() => {
     selectedQuestionRef.current = selectedQuestionId;
   }, [selectedQuestionId]);
+
+  function pushNotification(title: string, description: string | undefined, tone: DashboardNotification["tone"]) {
+    const id = notificationIdRef.current + 1;
+    notificationIdRef.current = id;
+
+    setNotifications((current) => [...current, { id, title, description, tone }].slice(-4));
+
+    const timeout = window.setTimeout(() => {
+      setNotifications((current) => current.filter((entry) => entry.id !== id));
+      notificationTimeoutsRef.current = notificationTimeoutsRef.current.filter((entry) => entry !== timeout);
+    }, 4200);
+
+    notificationTimeoutsRef.current.push(timeout);
+  }
 
   async function refreshOverview() {
     const response = await fetch("/api/admin/overview", { cache: "no-store" });
@@ -114,31 +194,34 @@ export function AdminOverview({
       setCurrentStream(payload.currentStream);
       setStreams(payload.streams);
       setQuestionArchive(payload.questionArchive);
-      setViewerQuestions(payload.viewerQuestions);
       setActiveQuestion(payload.activeQuestion);
       setResults(payload.results);
+      if (payload.results) {
+        resultsCacheRef.current.set(payload.results.questionId, payload.results);
+      }
     });
   }
 
   useEffect(() => {
     const socket = getSocket();
     socket.emit("admin:join");
-    socket.on("viewer:count", (payload: ViewerCount[]) => setViewerCounts(payload));
-    socket.on("classes:update", (payload: ClassesEntry[]) => setClasses(payload));
     socket.on("viewer-question:new", (payload: ViewerQuestionPayload) => {
-      setViewerQuestions((current) => [payload, ...current.filter((entry) => entry.id !== payload.id)].slice(0, 20));
+      pushNotification("Nuova domanda dal pubblico", `${formatViewerQuestionClassLabel(payload)} • ${payload.text}`, "info");
     });
     socket.on("results:update", (payload: ResultsPayload) => {
+      resultsCacheRef.current.set(payload.questionId, payload);
       setResults(payload);
       if (selectedQuestionRef.current === payload.questionId) {
         setSelectedResults(payload);
       }
+      pushNotification("Risultati aggiornati", "Le risposte della domanda selezionata sono state aggiornate.", "success");
     });
     socket.on("question:push", (payload: QuestionPayload) => {
       setActiveQuestion(payload);
       if (!selectedQuestionRef.current) {
         setSelectedQuestionId(payload.id);
       }
+      pushNotification("Domanda aggiornata", payload.text, "success");
       void refreshOverview();
     });
     socket.on("question:close", () => {
@@ -147,16 +230,22 @@ export function AdminOverview({
       if (selectedQuestionRef.current === activeQuestion?.id) {
         setSelectedResults(null);
       }
+      pushNotification("Domanda chiusa", "La domanda live non è più visibile alle classi.", "warning");
       void refreshOverview();
     });
     socket.on("stream:status", (payload: StreamStatusResponse) => {
       setStreamStatus(payload);
+      if (payload.status === "live") {
+        pushNotification("Live in onda", payload.title, "success");
+      } else if (payload.status === "scheduled") {
+        pushNotification("Live programmata", payload.title, "info");
+      } else {
+        pushNotification("Live terminata", "Non ci sono stream attive in questo momento.", "warning");
+      }
       void refreshOverview();
     });
 
     return () => {
-      socket.off("viewer:count");
-      socket.off("classes:update");
       socket.off("viewer-question:new");
       socket.off("results:update");
       socket.off("question:push");
@@ -166,21 +255,42 @@ export function AdminOverview({
   }, [activeQuestion?.id]);
 
   useEffect(() => {
+    return () => {
+      notificationTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedQuestionId && results?.questionId === selectedQuestionId) {
+      resultsCacheRef.current.set(results.questionId, results);
       setSelectedResults(results);
+      setSelectedResultsLoading(false);
     }
   }, [results, selectedQuestionId]);
 
   useEffect(() => {
     if (!selectedQuestionId) {
       setSelectedResults(null);
+      setSelectedResultsLoading(false);
       return;
     }
     if (results?.questionId === selectedQuestionId) {
+      resultsCacheRef.current.set(results.questionId, results);
       setSelectedResults(results);
+      setSelectedResultsLoading(false);
       return;
     }
+
+    const cached = resultsCacheRef.current.get(selectedQuestionId);
+    if (cached) {
+      setSelectedResults(cached);
+      setSelectedResultsLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
+    const requestedId = selectedQuestionId;
+    setSelectedResultsLoading(true);
     void fetch(`/api/admin/questions/${selectedQuestionId}/summary`, {
       cache: "no-store",
       signal: controller.signal,
@@ -188,7 +298,16 @@ export function AdminOverview({
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
         if (payload?.results) {
-          setSelectedResults(payload.results as ResultsPayload);
+          const nextResults = payload.results as ResultsPayload;
+          resultsCacheRef.current.set(nextResults.questionId, nextResults);
+          if (selectedQuestionRef.current === requestedId) {
+            setSelectedResults(nextResults);
+          }
+        }
+      })
+      .finally(() => {
+        if (selectedQuestionRef.current === requestedId) {
+          setSelectedResultsLoading(false);
         }
       })
       .catch(() => undefined);
@@ -223,16 +342,6 @@ export function AdminOverview({
       null
     );
   }, [currentStream?.questions, questionArchive, selectedQuestionId]);
-
-  const viewerMap = useMemo(() => {
-    const map = new Map<string, ViewerCount>();
-    viewerCounts.forEach((entry) => map.set(`${entry.year}-${entry.section}`, entry));
-    return map;
-  }, [viewerCounts]);
-
-  const sortedClasses = useMemo(() => [...classes].sort(sortClassEntries), [classes]);
-  const disconnectedClasses = sortedClasses.filter((entry) => !viewerMap.has(`${entry.year}-${entry.section}`));
-  const connectedClasses = sortedClasses.filter((entry) => viewerMap.has(`${entry.year}-${entry.section}`));
 
   async function runAction(url: string) {
     setError("");
@@ -277,247 +386,177 @@ export function AdminOverview({
     await refreshOverview();
   }
 
+  async function handleEndLive() {
+    if (!liveStream) {
+      return;
+    }
+
+    const firstConfirmation = window.confirm(`Terminare la live "${liveStream.title}"?`);
+    if (!firstConfirmation) {
+      return;
+    }
+
+    const secondConfirmation = window.confirm("Conferma finale: vuoi davvero interrompere la live adesso?");
+    if (!secondConfirmation) {
+      return;
+    }
+
+    await runAction(`/api/admin/streams/${liveStream.streamId}/end`);
+  }
+
   const liveStream = streamStatus.status === "live" ? streamStatus : null;
   const scheduledStream = streamStatus.status === "scheduled" ? streamStatus : null;
+  const streamPreviewUrl = liveStream?.embedUrl ?? scheduledStream?.embedUrl ?? currentStream?.embedUrl ?? null;
+  const streamEditorId = liveStream?.streamId ?? scheduledStream?.streamId ?? currentStream?.id ?? streams.drafts[0]?.id ?? null;
+  const streamDisplayTitle = liveStream?.title ?? scheduledStream?.title ?? currentStream?.title ?? "Nessuna live in onda";
+  const deskActiveQuestion = activeQuestions[0] ?? activeQuestion ?? null;
+  const nextQuestion = scheduledQuestions[0] ?? null;
+  const archivedQuestions = questionArchive.slice(0, 12);
+  const recentPastStreams = streams.past.slice(0, 3);
 
   return (
-    <div className="space-y-8">
+    <div className="relative space-y-6 pb-28">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Area amministrativa</p>
-          <h1 className="text-3xl font-semibold text-ink">Dashboard live</h1>
-          <p className="mt-1 text-ink/65">Gestisci stream, domande e classi connesse in tempo reale.</p>
+          <p className="text-sm uppercase tracking-[0.24em] text-ocean/70">Area amministrativa</p>
+          <h1 className="text-4xl font-semibold text-ink">Dashboard live</h1>
         </div>
-        <Button asChild>
-          <Link href="/admin/streams/new">Nuova stream</Link>
-        </Button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
-          <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
+      <div className="min-w-0 space-y-6">
+        <section className="rounded-[34px] border border-ocean/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(240,247,255,0.9))] p-6 shadow-soft">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold">Gestione live</h2>
-                <p className="text-sm text-ink/60">Stato attuale e comandi rapidi.</p>
+              <h2 className="mt-2 text-3xl font-semibold text-ink">Live</h2>
+              <LiveStatusPill status={streamStatus.status} startedAt={liveStream?.liveStartedAt} />
+            </div>
+
+            <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+              <div className="overflow-hidden rounded-[30px] border border-ocean/10 bg-ink shadow-soft">
+                <div className="aspect-[16/9] w-full">
+                  {streamPreviewUrl ? (
+                    <iframe src={streamPreviewUrl} className="h-full w-full" allow="fullscreen; autoplay" />
+                  ) : (
+                    <div className="flex h-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_40%),linear-gradient(180deg,#10243a,#08121f)] p-8 text-white">
+                      <div className="flex items-center gap-3 text-sm uppercase tracking-[0.18em] text-white/70">
+                        <MonitorPlay className="h-4 w-4" />
+                        Anteprima non disponibile
+                      </div>
+                      <div>
+                        <p className="max-w-lg text-white/75">Apri o crea una stream nella sezione storica qui sotto per vedere l’anteprima.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              {liveStream ? (
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" asChild>
-                    <Link href={`/admin/streams/${liveStream.streamId}`}>Modifica</Link>
-                  </Button>
-                  <Button variant="danger" onClick={() => runAction(`/api/admin/streams/${liveStream.streamId}/end`)}>
-                    Termina live
-                  </Button>
+
+              <div className="flex min-h-full flex-col justify-end gap-4 rounded-[30px] border border-ocean/10 bg-white/82 p-5 shadow-soft">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">
+                    {liveStream ? "Live attiva" : scheduledStream ? "Stream pronta" : "Sala pronta"}
+                  </p>
+                  <h3 className="mt-2 text-3xl font-semibold text-ink">{streamDisplayTitle}</h3>
+                </div>
+
+                <div className="rounded-[24px] border border-ocean/10 bg-ocean/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ocean/65">Link embed</p>
+                  {streamPreviewUrl ? (
+                    <a
+                      href={streamPreviewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 block break-all text-sm font-medium text-ocean underline-offset-4 hover:underline"
+                    >
+                      {streamPreviewUrl}
+                    </a>
+                  ) : (
+                    <p className="mt-2 text-sm text-ink/55">Nessun link disponibile.</p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {streamEditorId ? (
+                    <Button variant="secondary" asChild>
+                      <Link href={`/admin/streams/${streamEditorId}`}>Modifica live</Link>
+                    </Button>
+                  ) : null}
+                  {liveStream ? (
+                    <Button variant="danger" onClick={handleEndLive}>
+                      Termina live
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+        </section>
+
+          <section className="rounded-[34px] border border-ocean/10 bg-white/82 p-6 shadow-soft">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <h2 className="mt-2 text-3xl font-semibold text-ink">Regia domande</h2>
+              {error ? (
+                <div className="inline-flex items-center gap-2 rounded-full bg-terracotta/10 px-4 py-2 text-sm font-semibold text-terracotta">
+                  <TriangleAlert className="h-4 w-4" />
+                  {error}
                 </div>
               ) : null}
             </div>
-
-            {streamStatus.status === "no_stream" ? (
-              <div className="mt-5 space-y-4">
-                <p className="text-lg text-ink/70">Nessuna stream programmata o attiva.</p>
-                {streams.drafts.length ? (
-                  <div className="space-y-2">
-                    {streams.drafts.map((stream) => (
-                      <div key={stream.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ocean/10 bg-white/70 px-4 py-3">
-                        <div>
-                          <p className="font-semibold">{stream.title}</p>
-                          <p className="text-xs text-ink/60">Bozza pronta alla programmazione.</p>
-                        </div>
-                        <Button variant="secondary" asChild>
-                          <Link href={`/admin/streams/${stream.id}`}>Completa</Link>
-                        </Button>
-                      </div>
-                    ))}
+            <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_0.9fr_1.2fr]">
+              <div className="rounded-[28px] border border-ocean/10 bg-white/75 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-ink">Domanda attiva</h3>
+                  {deskActiveQuestion ? <span className="rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-ocean">Live</span> : null}
+                </div>
+                <p className="mt-4 text-lg font-semibold text-ink">{deskActiveQuestion?.text ?? "Nessuna domanda in onda."}</p>
+                <p className="mt-2 text-sm text-ink/60">
+                  {deskActiveQuestion
+                    ? `${deskActiveQuestion.inputType} · ${deskActiveQuestion.audienceType}`
+                    : "Quando mandi una domanda live la vedi qui."}
+                </p>
+                {deskActiveQuestion ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => setSelectedQuestionId(deskActiveQuestion.id)}>
+                      Apri risposte
+                    </Button>
+                    <Button variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/close`)}>
+                      Chiudi
+                    </Button>
                   </div>
-                ) : (
-                  <p className="text-sm text-ink/60">Crea una nuova stream per iniziare.</p>
-                )}
+                ) : null}
               </div>
-            ) : null}
 
-            {scheduledStream ? (
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-ocean/10 bg-white px-5 py-4">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">Prossima live</p>
-                  <p className="text-2xl font-semibold">{scheduledStream.title}</p>
-                  <p className="text-ink/65">{scheduledStream.scheduledAt ? formatDateTime(scheduledStream.scheduledAt) : ""}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => runAction(`/api/admin/streams/${scheduledStream.streamId}/live`)}>
-                    Vai live
-                  </Button>
-                  <Button variant="secondary" asChild>
-                    <Link href={`/admin/streams/${scheduledStream.streamId}`}>Modifica</Link>
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {liveStream ? (
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="overflow-hidden rounded-3xl bg-ink">
-                  <iframe src={liveStream.embedUrl} className="min-h-[280px] w-full" allow="fullscreen; autoplay" />
-                </div>
-                <div className="flex flex-col justify-between gap-4 rounded-3xl border border-ocean/10 bg-white/80 p-5">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">Live attiva</p>
-                    <p className="text-2xl font-semibold">{liveStream.title}</p>
-                  </div>
-                  <div className="space-y-2">
-                    {activeQuestion ? (
-                      <a
-                        href={`/api/admin/questions/${activeQuestion.id}/export`}
-                        className="inline-flex w-full items-center justify-center rounded-2xl bg-ocean px-4 py-3 text-sm font-semibold text-white"
-                      >
-                        Scarica risposte domanda attiva
-                      </a>
-                    ) : null}
-                    <a
-                      href={`/api/admin/streams/${liveStream.streamId}/export`}
-                      className="inline-flex w-full items-center justify-center rounded-2xl border border-ocean/20 bg-white px-4 py-3 text-sm font-semibold text-ocean"
-                    >
-                      Scarica risposte stream
-                    </a>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </section>
-
-          <section id="streams" className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
-            <h2 className="text-2xl font-semibold">Programmazione stream</h2>
-            <div className="mt-4 grid gap-6 lg:grid-cols-2">
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold">Prossime live</h3>
-                {streams.upcoming.length ? (
-                  streams.upcoming.map((stream) => (
-                    <div key={stream.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ocean/10 bg-white/70 px-4 py-3">
-                      <div>
-                        <p className="font-semibold">{stream.title}</p>
-                        <p className="text-sm text-ink/60">{stream.scheduledAt ? formatDateTime(stream.scheduledAt) : ""}</p>
-                      </div>
-                      <Button variant="secondary" asChild>
-                        <Link href={`/admin/streams/${stream.id}`}>Gestisci</Link>
-                      </Button>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-ink/60">Nessuna live programmata.</p>
-                )}
-              </div>
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold">Archivio live</h3>
-                {streams.past.length ? (
-                  streams.past.map((stream) => (
-                    <div key={stream.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ocean/10 bg-white/70 px-4 py-3">
-                      <div>
-                        <p className="font-semibold">{stream.title}</p>
-                        <p className="text-sm text-ink/60">{stream.scheduledAt ? formatDateTime(stream.scheduledAt) : ""}</p>
-                      </div>
-                      <a
-                        href={`/api/admin/streams/${stream.id}/export`}
-                        className="inline-flex items-center justify-center rounded-2xl border border-ocean/20 bg-white px-4 py-2 text-sm font-semibold text-ocean"
-                      >
-                        Scarica CSV
-                      </a>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-ink/60">Nessuna live archiviata.</p>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold">Gestione domande</h2>
-                <p className="text-sm text-ink/60">Domande live, programmate e archivio completo.</p>
-              </div>
-              {error ? <p className="text-sm text-terracotta">{error}</p> : null}
-            </div>
-
-            <div className="mt-5 grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Domande attive</h3>
-                    {activeQuestion ? (
-                      <span className="rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-ocean">Live</span>
-                    ) : null}
-                  </div>
-                  {activeQuestions.length ? (
-                    activeQuestions.map((question) => (
-                      <div
-                        key={question.id}
-                        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
-                          selectedQuestionId === question.id
-                            ? "border-ocean/30 bg-ocean/5"
-                            : "border-ocean/10 bg-white/70"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedQuestionId(question.id)}
-                          className="text-left"
-                        >
-                          <p className="font-semibold">{question.text}</p>
-                          <p className="text-xs text-ink/60">
-                            {question.inputType} · {question.audienceType} · {question.status}
-                          </p>
-                        </button>
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="secondary" onClick={() => runAction(`/api/admin/questions/${question.id}/results`)}>
-                            Risultati
-                          </Button>
-                          <Button variant="ghost" onClick={() => runAction(`/api/admin/questions/${question.id}/close`)}>
-                            Chiudi
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-ink/60">Nessuna domanda live al momento.</p>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold">Domande programmate</h3>
+              <div className="rounded-[28px] border border-ocean/10 bg-white/75 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-ink">Prossima domanda</h3>
                   {scheduledQuestions.length ? (
-                    scheduledQuestions.map((question) => (
-                      <div
-                        key={question.id}
-                        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
-                          selectedQuestionId === question.id
-                            ? "border-ocean/30 bg-ocean/5"
-                            : "border-ocean/10 bg-white/70"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedQuestionId(question.id)}
-                          className="text-left"
-                        >
-                          <p className="font-semibold">{question.text}</p>
-                          <p className="text-xs text-ink/60">
-                            {question.inputType} · {question.audienceType}
-                          </p>
-                        </button>
-                        <Button onClick={() => runAction(`/api/admin/questions/${question.id}/live`)}>Vai live</Button>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-ink/60">Nessuna domanda programmata.</p>
-                  )}
+                    <span className="rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean">
+                      {scheduledQuestions.length}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-4 text-lg font-semibold text-ink">{nextQuestion?.text ?? "Nessuna domanda pronta."}</p>
+                <p className="mt-2 text-sm text-ink/60">
+                  {nextQuestion
+                    ? `${nextQuestion.inputType} · ${nextQuestion.audienceType}`
+                    : "Aggiungi o prepara una domanda nella live per vederla qui."}
+                </p>
+                {nextQuestion ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button onClick={() => runAction(`/api/admin/questions/${nextQuestion.id}/live`)}>Vai live</Button>
+                    <Button variant="secondary" onClick={() => setSelectedQuestionId(nextQuestion.id)}>
+                      Apri dettaglio
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-[28px] border border-ocean/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(242,248,255,0.92))] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-lg font-semibold text-ink">Aggiungi una domanda al momento</h3>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">
+                    {liveStream ? "Live disponibile" : "Solo con live attiva"}
+                  </span>
                 </div>
 
-                <div className="space-y-3 rounded-2xl border border-ocean/10 bg-white/70 p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Invia domanda live</h3>
-                    <span className="text-xs text-ink/50">Solo con live attiva</span>
-                  </div>
+                <div className="mt-4 space-y-3">
                   <input
                     value={questionDraft.text}
                     onChange={(event) => setQuestionDraft((current) => ({ ...current, text: event.target.value }))}
@@ -525,7 +564,7 @@ export function AdminOverview({
                     className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
                     disabled={!liveStream}
                   />
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_140px]">
                     <select
                       value={questionDraft.inputType}
                       onChange={(event) => setQuestionDraft((current) => ({ ...current, inputType: event.target.value }))}
@@ -567,160 +606,143 @@ export function AdminOverview({
                       disabled={!liveStream}
                     />
                   ) : null}
-                  <Button onClick={handleCreateLiveQuestion} disabled={!liveStream || isPending}>
-                    Invia domanda
-                  </Button>
+                  <div className="flex justify-end">
+                    <Button onClick={handleCreateLiveQuestion} disabled={!liveStream || isPending}>
+                      Invia live
+                    </Button>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-3 rounded-2xl border border-ocean/10 bg-white/70 p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Feed risposte</h3>
-                  {selectedQuestion ? (
-                    <span className="text-xs text-ink/50">Domanda selezionata</span>
-                  ) : null}
+            <div className="mt-5 rounded-[28px] border border-ocean/10 bg-white/75 p-4">
+              <div className="grid gap-4 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+                <div className="min-h-0">
+                  <h3 className="text-lg font-semibold text-ink">Ultime domande</h3>
+                  <div className="mt-4 max-h-[280px] space-y-2 overflow-y-auto overscroll-contain pr-2 md:max-h-[420px]">
+                    {archivedQuestions.length ? (
+                      archivedQuestions.map((question) => (
+                        <button
+                          key={question.id}
+                          type="button"
+                          onClick={() =>
+                            startTransition(() => {
+                              setSelectedQuestionId(question.id);
+                            })
+                          }
+                          className={`flex w-full flex-col rounded-2xl border px-4 py-3 text-left transition-colors ${
+                            selectedQuestionId === question.id ? "border-ocean/30 bg-ocean/5" : "border-ocean/10 bg-white hover:border-ocean/20 hover:bg-ocean/5"
+                          }`}
+                        >
+                          <span className="line-clamp-2 font-semibold text-ink">{question.text}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="text-sm text-ink/60">Nessuna domanda archiviata.</p>
+                    )}
+                  </div>
                 </div>
-                {selectedQuestion ? (
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">{selectedQuestion.text}</p>
-                    {"streamTitle" in selectedQuestion && selectedQuestion.streamTitle ? (
-                      <p className="text-xs text-ink/50">Stream: {selectedQuestion.streamTitle}</p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {!selectedResults ? (
-                  <p className="text-sm text-ink/60">Seleziona una domanda per vedere le risposte.</p>
-                ) : selectedResults.latestSubmissions?.length ? (
-                  <div className="space-y-2">
-                    {selectedResults.latestSubmissions.slice(0, 12).map((entry, index) => (
-                      <div key={`${entry.value}-${index}`} className="rounded-2xl border border-ocean/10 bg-white px-3 py-2">
-                        <p className="text-sm font-medium">{entry.value || "-"}</p>
-                        <p className="text-xs text-ink/50">{entry.classLabel ?? "Classe non indicata"}</p>
+
+                <div className="min-h-[220px]">
+                  <h3 className="text-lg font-semibold text-ink">Risposte associate</h3>
+                  {selectedQuestion ? <p className="mt-3 line-clamp-2 text-sm font-semibold text-ink">{selectedQuestion.text}</p> : null}
+                  <div className="mt-4 space-y-2">
+                    {selectedResultsLoading ? (
+                      <div className="space-y-2">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                          <div key={index} className="h-14 animate-pulse rounded-2xl border border-ocean/10 bg-ocean/5" />
+                        ))}
                       </div>
-                    ))}
+                    ) : !selectedResults ? (
+                      <p className="text-sm text-ink/60">Seleziona una domanda per vedere le risposte.</p>
+                    ) : selectedResults.latestSubmissions?.length ? (
+                      selectedResults.latestSubmissions.slice(0, 12).map((entry, index) => (
+                        <div key={`${entry.value}-${index}`} className="rounded-2xl border border-ocean/10 bg-white px-3 py-2">
+                          <p className="text-sm font-medium text-ink">{entry.value || "-"}</p>
+                          <p className="text-xs text-ink/50">{entry.classLabel ?? "Classe non indicata"}</p>
+                        </div>
+                      ))
+                    ) : (
+                      selectedResults.entries.map((entry) => (
+                        <div key={entry.label} className="flex items-center justify-between rounded-2xl border border-ocean/10 bg-white px-3 py-2">
+                          <span className="text-sm text-ink">{entry.label}</span>
+                          <span className="text-sm font-semibold text-ocean">{entry.value}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="streams" className="rounded-[34px] border border-ocean/10 bg-white/82 p-6 shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-3xl font-semibold text-ink">Ultime live passate</h2>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" asChild>
+                  <Link href="/admin/streams">Apri tabella completa</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/admin/streams/new">Nuova stream</Link>
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-x-auto rounded-[28px] border border-ocean/10">
+              <div className="min-w-[760px]">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_180px_120px_120px] gap-4 bg-ocean/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-ocean/70">
+                  <span>Titolo</span>
+                  <span>Data</span>
+                  <span>Domande</span>
+                  <span>Azioni</span>
+                </div>
+                {recentPastStreams.length ? (
+                  recentPastStreams.map((stream) => (
+                    <div
+                      key={stream.id}
+                      className="grid grid-cols-[minmax(0,1.4fr)_180px_120px_120px] gap-4 border-t border-ocean/10 bg-white px-4 py-4"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-ink">{stream.title}</p>
+                        <p className="mt-1 truncate text-sm text-ink/55">{stream.embedUrl}</p>
+                      </div>
+                      <p className="text-sm text-ink/65">{stream.scheduledAt ? formatDateTime(stream.scheduledAt) : "Conclusa"}</p>
+                      <p className="text-sm font-semibold text-ink">{stream.questionsCount}</p>
+                      <div>
+                        <Button variant="secondary" asChild>
+                          <Link href={`/admin/streams/${stream.id}`}>Apri</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))
                 ) : (
-                  <div className="space-y-2">
-                    {selectedResults.entries.map((entry) => (
-                      <div key={entry.label} className="flex items-center justify-between rounded-2xl border border-ocean/10 bg-white px-3 py-2">
-                        <span className="text-sm">{entry.label}</span>
-                        <span className="text-sm font-semibold text-ocean">{entry.value}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="bg-white px-4 py-8 text-sm text-ink/60">Nessuna live passata disponibile.</div>
                 )}
               </div>
             </div>
-
-            <div className="mt-6 space-y-3">
-              <h3 className="text-lg font-semibold">Archivio domande</h3>
-              {questionArchive.length ? (
-                <div className="max-h-[360px] space-y-2 overflow-y-auto pr-2">
-                  {questionArchive.map((question) => (
-                    <button
-                      key={question.id}
-                      type="button"
-                      onClick={() => setSelectedQuestionId(question.id)}
-                      className={`flex w-full flex-col gap-1 rounded-2xl border px-4 py-3 text-left ${
-                        selectedQuestionId === question.id ? "border-ocean/30 bg-ocean/5" : "border-ocean/10 bg-white/70"
-                      }`}
-                    >
-                      <span className="font-semibold">{question.text}</span>
-                      <span className="text-xs text-ink/60">
-                        {question.streamTitle ?? "Stream non disponibile"} · {formatDateTime(question.createdAt)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-ink/60">Nessuna domanda archiviata.</p>
-              )}
-            </div>
           </section>
-        </div>
+      </div>
 
-        <aside className="space-y-6">
-          <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-2xl font-semibold">Domande dal pubblico</h2>
-                <p className="text-sm text-ink/60">Messaggi inviati dalla pill in basso durante la stream.</p>
+      <div
+        className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-full max-w-sm flex-col gap-3 xl:right-[calc(var(--admin-sidebar-width)+1.5rem)]"
+      >
+        {notifications.map((notification) => (
+          <div
+            key={notification.id}
+            className={`pointer-events-auto rounded-[24px] border px-4 py-3 shadow-2xl backdrop-blur ${getNotificationToneClasses(notification.tone)}`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-full bg-ocean/10 p-2 text-ocean">
+                <Bell className="h-4 w-4" />
               </div>
-              <span className="rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean">
-                {viewerQuestions.length}
-              </span>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {viewerQuestions.length ? (
-                viewerQuestions.map((entry) => (
-                  <div key={entry.id} className="rounded-2xl border border-ocean/10 bg-white/80 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm font-semibold text-ink">{formatViewerQuestionClassLabel(entry)}</p>
-                      <p className="text-xs text-ink/50">{formatDateTime(entry.createdAt)}</p>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-ink/80">{entry.text}</p>
-                    {entry.streamTitle ? (
-                      <p className="mt-2 text-xs text-ink/50">Stream: {entry.streamTitle}</p>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-ink/50">Nessuna domanda dal pubblico ricevuta.</p>
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-ocean/10 bg-white/80 p-6">
-            <h2 className="text-2xl font-semibold">Classi connesse</h2>
-            <p className="text-sm text-ink/60">Elenco live con priorità alle classi scollegate.</p>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink/50">Non connesse</p>
-                <div className="mt-2 space-y-2">
-                  {disconnectedClasses.length ? (
-                    disconnectedClasses.map((entry) => (
-                      <div key={`${entry.year}-${entry.section}`} className="flex items-center justify-between rounded-2xl border border-ocean/10 bg-white/70 px-3 py-2">
-                        <span className="text-sm font-medium">{formatClassLabel(entry)}</span>
-                        <span className="text-xs text-ink/50">Offline</span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-ink/50">Nessuna classe scollegata.</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink/50">Connesse</p>
-                <div className="mt-2 space-y-2">
-                  {connectedClasses.length ? (
-                    connectedClasses.map((entry) => {
-                      const key = `${entry.year}-${entry.section}`;
-                      const viewer = viewerMap.get(key);
-                      return (
-                        <div key={key} className="rounded-2xl border border-ocean/10 bg-white/70 px-3 py-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{formatClassLabel(entry)}</span>
-                            <span className="rounded-full bg-ocean/10 px-2 py-0.5 text-xs font-semibold text-ocean">
-                              {viewer?.count ?? 0}
-                            </span>
-                          </div>
-                          {viewer?.ips?.length ? (
-                            <p className="mt-1 text-xs text-ink/50">IP: {viewer.ips.join(", ")}</p>
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <p className="text-sm text-ink/50">Nessuna classe connessa.</p>
-                  )}
-                </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-ink">{notification.title}</p>
+                {notification.description ? <p className="mt-1 text-sm text-ink/65">{notification.description}</p> : null}
               </div>
             </div>
-          </section>
-        </aside>
+          </div>
+        ))}
       </div>
     </div>
   );

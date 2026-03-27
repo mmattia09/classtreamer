@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { serializeClassesInput, type ClassEntry } from "@/lib/classes";
+import type { AppSettings } from "@/lib/settings";
 
 type Props = {
   initialClasses: string;
@@ -71,8 +72,17 @@ export function AdminSettingsForm({
           appLightColor,
         }),
       });
-      const payload = (await response.json()) as { ok?: boolean };
-      setBrandNote(payload.ok ? "Tema aggiornato." : "Non riesco ad aggiornare il tema.");
+      const payload = (await response.json()) as { ok?: boolean; settings?: AppSettings };
+      if (payload.ok && payload.settings) {
+        setAppName(payload.settings.appName);
+        setAppIcon(payload.settings.appIcon);
+        setAppBgColor(payload.settings.appBgColor);
+        setAppMainColor(payload.settings.appMainColor);
+        setAppLightColor(payload.settings.appLightColor);
+        setBrandNote("Tema aggiornato.");
+      } else {
+        setBrandNote("Non riesco ad aggiornare il tema.");
+      }
     } catch {
       setBrandNote("Non riesco ad aggiornare il tema.");
     } finally {
@@ -86,7 +96,7 @@ export function AdminSettingsForm({
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold">Tema e branding</h2>
           <p className="text-sm text-ink/65">
-            Modifica il nome dell&apos;app, la favicon e i colori principali.
+            Modifica il nome dell&apos;app, il logo/fallback e i colori principali.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -102,12 +112,12 @@ export function AdminSettingsForm({
           </div>
           <div className="space-y-2">
             <div className="text-sm font-semibold">Icona</div>
-            <p className="text-xs text-ink/60">URL dell&apos;immagine usata come favicon e logo.</p>
+            <p className="text-xs text-ink/60">URL dell&apos;immagine usata come favicon e logo. Lascia vuoto per usare quello predefinito.</p>
             <input
               value={appIcon}
               onChange={(event) => setAppIcon(event.target.value)}
               className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-              placeholder="URL icona"
+              placeholder="https://esempio.it/logo.png"
             />
           </div>
           <div className="space-y-2">

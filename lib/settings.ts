@@ -1,4 +1,4 @@
-import { APP_BRAND_DEFAULTS } from "@/lib/settings-defaults";
+import { APP_BRAND_DEFAULTS, resolveAppBrandIcon } from "@/lib/settings-defaults";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import type { AppSetting } from "@prisma/client";
@@ -65,7 +65,7 @@ export async function getAppSettings(): Promise<AppSettings> {
 
   return {
     appName: settings.appName ?? APP_BRAND_DEFAULTS.name,
-    appIcon: settings.appIcon ?? APP_BRAND_DEFAULTS.icon,
+    appIcon: resolveAppBrandIcon(settings.appIcon),
     appBgColor: settings.appBgColor ?? APP_BRAND_DEFAULTS.colors.bg,
     appMainColor: settings.appMainColor ?? APP_BRAND_DEFAULTS.colors.main,
     appLightColor: settings.appLightColor ?? APP_BRAND_DEFAULTS.colors.light,
@@ -78,12 +78,13 @@ export async function updateAppSettings(payload: Partial<AppSettings>): Promise<
     ...current,
     ...payload,
   };
+  const appIcon = resolveAppBrandIcon(next.appIcon);
 
   const settings = await prisma.appSetting.upsert({
     where: { id: SETTINGS_ID },
     update: {
       appName: next.appName,
-      appIcon: next.appIcon,
+      appIcon,
       appBgColor: next.appBgColor,
       appMainColor: next.appMainColor,
       appLightColor: next.appLightColor,
@@ -91,7 +92,7 @@ export async function updateAppSettings(payload: Partial<AppSettings>): Promise<
     create: {
       id: SETTINGS_ID,
       appName: next.appName,
-      appIcon: next.appIcon,
+      appIcon,
       appBgColor: next.appBgColor,
       appMainColor: next.appMainColor,
       appLightColor: next.appLightColor,
@@ -100,7 +101,7 @@ export async function updateAppSettings(payload: Partial<AppSettings>): Promise<
 
   return {
     appName: settings.appName ?? APP_BRAND_DEFAULTS.name,
-    appIcon: settings.appIcon ?? APP_BRAND_DEFAULTS.icon,
+    appIcon: resolveAppBrandIcon(settings.appIcon),
     appBgColor: settings.appBgColor ?? APP_BRAND_DEFAULTS.colors.bg,
     appMainColor: settings.appMainColor ?? APP_BRAND_DEFAULTS.colors.main,
     appLightColor: settings.appLightColor ?? APP_BRAND_DEFAULTS.colors.light,
