@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { AppSettings } from "@/lib/settings";
-import { APP_BRAND_DEFAULTS } from "@/lib/settings-defaults";
+import { APP_BRAND_DEFAULTS, resolveAppBrandIcon } from "@/lib/settings-defaults";
 
 type RgbChannels = [number, number, number];
 
@@ -43,7 +43,7 @@ function darkenRgb(rgb: RgbChannels, amount: number): RgbChannels {
 
 export function buildAppConfig(input: BrandingInput = {}) {
   const name = input.appName?.trim() || APP_BRAND.name;
-  const icon = input.appIcon?.trim() || APP_BRAND.icon;
+  const icon = resolveAppBrandIcon(input.appIcon);
 
   const bgHex = normalizeHex(input.appBgColor) ?? APP_BRAND.colors.bg;
   const mainHex = normalizeHex(input.appMainColor) ?? APP_BRAND.colors.main;

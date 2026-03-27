@@ -1,7 +1,17 @@
+export const APP_BRAND_DEFAULT_ICON = "/logo.png";
+
+export function resolveAppBrandIcon(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return APP_BRAND_DEFAULT_ICON;
+  }
+  return trimmed;
+}
+
 export const APP_BRAND_DEFAULTS = {
   name: "Classtreamer",
   description: "Gestione stream scolastiche con interazione in tempo reale",
-  icon: "https://e.chilesotti.it/pluginfile.php/1/core_admin/logo/0x200/1771002373/Logo_chilesotti_294.png",
+  icon: APP_BRAND_DEFAULT_ICON,
   colors: {
     bg: "#f8f9fa",
     main: "#002d61",

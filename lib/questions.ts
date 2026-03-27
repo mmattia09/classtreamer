@@ -48,6 +48,7 @@ export async function getCurrentStreamStatus(filter?: ClassAudienceFilter): Prom
       embedUrl: live.embedUrl,
       streamId: live.id,
       title: live.title,
+      liveStartedAt: live.updatedAt.toISOString(),
     };
   }
 

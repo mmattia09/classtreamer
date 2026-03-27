@@ -26,6 +26,7 @@ export async function POST(
     embedUrl: stream.embedUrl,
     streamId: stream.id,
     title: stream.title,
+    liveStartedAt: stream.updatedAt.toISOString(),
   });
 
   return NextResponse.redirect(new URL(`/admin/streams/${id}`, getPublicUrl()), 303);

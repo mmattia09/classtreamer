@@ -4,6 +4,9 @@ import { normalizeHex } from "@/lib/app-config";
 import { updateAppSettings, getAppSettings } from "@/lib/settings";
 import { broadcast } from "@/lib/socket-bridge";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   const settings = await getAppSettings();
   return NextResponse.json(settings);
@@ -31,7 +34,7 @@ export async function POST(request: Request) {
 
   const settings = await updateAppSettings({
     appName: appName.length > 0 ? appName : current.appName,
-    appIcon: appIcon.length > 0 ? appIcon : current.appIcon,
+    appIcon,
     appBgColor,
     appMainColor,
     appLightColor,
