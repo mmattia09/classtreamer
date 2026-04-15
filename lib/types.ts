@@ -19,20 +19,30 @@ export type QuestionPayload = {
 export type ResultEntry = {
   label: string;
   value: number;
+  percentage?: number;
 };
 
 export type AnswerSubmission = {
+  id: string;
   value: string;
   classLabel?: string | null;
+  createdAt?: string;
 };
 
 export type ResultsPayload = {
   questionId: string;
   type: QuestionPayload["inputType"];
+  questionText?: string;
   totalAnswers: number;
   entries: ResultEntry[];
   latestAnswers?: string[];
   latestSubmissions?: AnswerSubmission[];
+  average?: number | null;
+  scale?: {
+    min: number;
+    max: number;
+    step: number;
+  };
 };
 
 export type ViewerQuestionPayload = {
@@ -44,3 +54,34 @@ export type ViewerQuestionPayload = {
   classSection: string | null;
   createdAt: string;
 };
+
+export type StoredEmbedState =
+  | {
+      kind: "none";
+    }
+  | {
+      kind: "question";
+      questionId: string;
+      selectedAnswerIds?: string[];
+      featuredAnswerId?: string | null;
+    }
+  | {
+      kind: "viewer-question";
+      viewerQuestionId: string;
+    };
+
+export type EmbedPayload =
+  | {
+      kind: "none";
+    }
+  | {
+      kind: "question";
+      question: QuestionPayload;
+      results: ResultsPayload;
+      featuredAnswerId?: string | null;
+      selectedAnswerIds?: string[];
+    }
+  | {
+      kind: "viewer-question";
+      viewerQuestion: ViewerQuestionPayload;
+    };

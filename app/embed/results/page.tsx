@@ -1,11 +1,10 @@
 import { ResultsEmbedClient } from "@/components/stream/results-embed-client";
-import { getActiveQuestion, getResultsForQuestion } from "@/lib/questions";
+import { resolveEmbedPayload } from "@/lib/embed-state";
 
 export const dynamic = "force-dynamic";
 
 export default async function EmbedResultsPage() {
-  const question = await getActiveQuestion();
-  const results = question ? await getResultsForQuestion(question.id) : null;
+  const embed = await resolveEmbedPayload();
 
-  return <ResultsEmbedClient initialQuestion={question} initialResults={results} />;
+  return <ResultsEmbedClient initialEmbed={embed} />;
 }

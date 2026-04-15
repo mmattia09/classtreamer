@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       audienceType: string;
       timerSeconds?: number;
       options?: string[];
+      settings?: Record<string, number>;
     }>;
   };
 
@@ -46,6 +47,18 @@ export async function POST(request: Request) {
           audienceType: question.audienceType as never,
           timerSeconds: question.timerSeconds ?? null,
           options: question.options ?? [],
+          settings:
+            question.inputType === "SCALE"
+              ? {
+                  min: question.settings?.min ?? 1,
+                  max: question.settings?.max ?? 5,
+                  step: question.settings?.step ?? 1,
+                }
+              : question.inputType === "WORD_COUNT"
+                ? {
+                    maxWords: question.settings?.maxWords ?? 3,
+                  }
+                : undefined,
           order: index,
         })),
       },

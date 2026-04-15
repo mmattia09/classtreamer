@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     audienceType: string;
     timerSeconds?: number;
     options?: string[];
+    settings?: Record<string, number>;
   };
 
   const liveStream = await prisma.stream.findFirst({
@@ -41,6 +42,18 @@ export async function POST(request: Request) {
       audienceType: payload.audienceType as never,
       timerSeconds: payload.timerSeconds ?? null,
       options: payload.options ?? [],
+      settings:
+        payload.inputType === "SCALE"
+          ? {
+              min: payload.settings?.min ?? 1,
+              max: payload.settings?.max ?? 5,
+              step: payload.settings?.step ?? 1,
+            }
+          : payload.inputType === "WORD_COUNT"
+            ? {
+                maxWords: payload.settings?.maxWords ?? 3,
+              }
+            : undefined,
       order: (existingOrder._max.order ?? 0) + 1,
       status: QuestionStatus.LIVE,
       openedAt: new Date(),

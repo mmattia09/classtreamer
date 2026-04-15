@@ -40,6 +40,61 @@ export async function POST(
     return NextResponse.json({ error: "Domanda non disponibile" }, { status: 404 });
   }
 
+  if (question.openedAt && question.timerSeconds) {
+    const expiresAt = question.openedAt.getTime() + question.timerSeconds * 1000;
+    if (expiresAt <= Date.now()) {
+      return NextResponse.json({ error: "Tempo scaduto" }, { status: 410 });
+    }
+  }
+
+  if (question.inputType === "WORD_COUNT") {
+    const text = String((value as { text?: string })?.text ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const maxWords = Number((question.settings as Record<string, number> | null)?.maxWords ?? 3);
+
+    if (!text.length || text.length > maxWords) {
+      return NextResponse.json({ error: "Risposta non valida" }, { status: 400 });
+    }
+  }
+
+  if (question.inputType === "OPEN") {
+    const text = String((value as { text?: string })?.text ?? "").trim();
+    if (!text) {
+      return NextResponse.json({ error: "Risposta non valida" }, { status: 400 });
+    }
+  }
+
+  if (question.inputType === "SCALE") {
+    const settings = (question.settings as Record<string, number> | null) ?? {};
+    const min = Number(settings.min ?? 1);
+    const max = Number(settings.max ?? 5);
+    const numericValue = Number((value as { value?: number })?.value);
+
+    if (!Number.isFinite(numericValue) || numericValue < min || numericValue > max) {
+      return NextResponse.json({ error: "Valore scala non valido" }, { status: 400 });
+    }
+  }
+
+  if (question.inputType === "SINGLE_CHOICE") {
+    const selectedValue = String((value as { value?: string })?.value ?? "");
+    const options = Array.isArray(question.options) ? question.options.map(String) : [];
+    if (!selectedValue || !options.includes(selectedValue)) {
+      return NextResponse.json({ error: "Risposta non valida" }, { status: 400 });
+    }
+  }
+
+  if (question.inputType === "MULTIPLE_CHOICE") {
+    const selectedValues = Array.isArray((value as { values?: string[] })?.values)
+      ? ((value as { values?: string[] }).values as string[])
+      : [];
+    const options = Array.isArray(question.options) ? question.options.map(String) : [];
+    if (!selectedValues.length || selectedValues.some((entry) => !options.includes(entry))) {
+      return NextResponse.json({ error: "Risposta non valida" }, { status: 400 });
+    }
+  }
+
   await prisma.answer.create({
     data: {
       questionId: id,

@@ -73,6 +73,7 @@ export function StreamEditor({
           audienceType: "CLASS",
           timerSeconds: 60,
           options: [],
+          settings: {},
           status: "DRAFT",
           resultsVisible: false,
         },
@@ -196,7 +197,7 @@ export function StreamEditor({
                       className="h-12 w-full rounded-2xl border border-ocean/10 px-3 text-sm font-medium text-ink"
                     >
                       <option value="OPEN">Aperta</option>
-                      <option value="WORD_COUNT">Word count</option>
+                      <option value="WORD_COUNT">Word cloud</option>
                       <option value="SCALE">Scala</option>
                       <option value="SINGLE_CHOICE">Scelta singola</option>
                       <option value="MULTIPLE_CHOICE">Scelta multipla</option>
@@ -259,6 +260,100 @@ export function StreamEditor({
                     }
                     className="min-h-24 w-full rounded-2xl border border-ocean/10 px-4 py-3"
                     placeholder="Una opzione per riga"
+                  />
+                ) : null}
+                {question.inputType === "SCALE" ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <input
+                      type="number"
+                      value={question.settings?.min ?? 1}
+                      onChange={(event) =>
+                        setPayload((current) => ({
+                          ...current,
+                          questions: current.questions.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  settings: {
+                                    ...item.settings,
+                                    min: Number(event.target.value),
+                                  },
+                                }
+                              : item,
+                          ),
+                        }))
+                      }
+                      className="h-12 rounded-2xl border border-ocean/10 px-3"
+                      placeholder="Min"
+                    />
+                    <input
+                      type="number"
+                      value={question.settings?.max ?? 10}
+                      onChange={(event) =>
+                        setPayload((current) => ({
+                          ...current,
+                          questions: current.questions.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  settings: {
+                                    ...item.settings,
+                                    max: Number(event.target.value),
+                                  },
+                                }
+                              : item,
+                          ),
+                        }))
+                      }
+                      className="h-12 rounded-2xl border border-ocean/10 px-3"
+                      placeholder="Max"
+                    />
+                    <input
+                      type="number"
+                      value={question.settings?.step ?? 1}
+                      onChange={(event) =>
+                        setPayload((current) => ({
+                          ...current,
+                          questions: current.questions.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  settings: {
+                                    ...item.settings,
+                                    step: Number(event.target.value),
+                                  },
+                                }
+                              : item,
+                          ),
+                        }))
+                      }
+                      className="h-12 rounded-2xl border border-ocean/10 px-3"
+                      placeholder="Step"
+                    />
+                  </div>
+                ) : null}
+                {question.inputType === "WORD_COUNT" ? (
+                  <input
+                    type="number"
+                    value={question.settings?.maxWords ?? 3}
+                    onChange={(event) =>
+                      setPayload((current) => ({
+                        ...current,
+                        questions: current.questions.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                settings: {
+                                  ...item.settings,
+                                  maxWords: Number(event.target.value),
+                                },
+                              }
+                            : item,
+                        ),
+                      }))
+                    }
+                    className="h-12 w-full rounded-2xl border border-ocean/10 px-3"
+                    placeholder="Numero massimo di parole"
                   />
                 ) : null}
               </div>
