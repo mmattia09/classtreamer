@@ -191,6 +191,19 @@ export function DashboardClassesSidebar({
     event.preventDefault();
   }
 
+  async function sendViewerQuestionToEmbed(viewerQuestionId: string) {
+    await fetch("/api/admin/embed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        kind: "viewer-question",
+        viewerQuestionId,
+      }),
+    });
+  }
+
   const content = (
     <div className="space-y-5">
       <section className="rounded-[28px] border border-sage/20 bg-sage/10 p-4">
@@ -291,6 +304,13 @@ export function DashboardClassesSidebar({
                   <p className="shrink-0 text-[11px] text-ink/45">{formatDateTime(entry.createdAt)}</p>
                 </div>
                 <p className="mt-1 text-sm leading-5 text-ink/80">{entry.text}</p>
+                <button
+                  type="button"
+                  onClick={() => void sendViewerQuestionToEmbed(entry.id)}
+                  className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-ocean"
+                >
+                  Mostra su embed
+                </button>
               </div>
             ))
           ) : (

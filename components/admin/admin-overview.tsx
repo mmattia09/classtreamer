@@ -31,6 +31,12 @@ type QuestionDraft = {
   audienceType: string;
   timerSeconds: number;
   options: string;
+  settings: {
+    min: number;
+    max: number;
+    step: number;
+    maxWords: number;
+  };
 };
 
 type DashboardNotification = {
@@ -88,6 +94,14 @@ function getNotificationToneClasses(tone: DashboardNotification["tone"]) {
   }
 
   return "border-ocean/15 bg-white text-ink";
+}
+
+function isQuestionExpired(question: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined) {
+  if (!question?.openedAt || !question.timerSeconds) {
+    return false;
+  }
+
+  return new Date(question.openedAt).getTime() + question.timerSeconds * 1000 <= Date.now();
 }
 
 function LiveStatusPill({
@@ -154,9 +168,18 @@ export function AdminOverview({
     audienceType: "CLASS",
     timerSeconds: 60,
     options: "",
+    settings: {
+      min: 1,
+      max: 10,
+      step: 1,
+      maxWords: 3,
+    },
   });
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [selectedResultsLoading, setSelectedResultsLoading] = useState(false);
+  const [embedSelectionIds, setEmbedSelectionIds] = useState<string[]>([]);
+  const [featuredEmbedAnswerId, setFeaturedEmbedAnswerId] = useState<string | null>(null);
+  const [timerTick, setTimerTick] = useState(0);
   const [isPending, startTransition] = useTransition();
   const selectedQuestionRef = useRef(selectedQuestionId);
   const notificationIdRef = useRef(0);
@@ -168,6 +191,14 @@ export function AdminOverview({
   useEffect(() => {
     selectedQuestionRef.current = selectedQuestionId;
   }, [selectedQuestionId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTimerTick((current) => current + 1);
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   function pushNotification(title: string, description: string | undefined, tone: DashboardNotification["tone"]) {
     const id = notificationIdRef.current + 1;
@@ -329,7 +360,6 @@ export function AdminOverview({
     }
   }, [focusSection]);
 
-  const activeQuestions = currentStream?.questions.filter((question) => ["LIVE", "RESULTS"].includes(question.status)) ?? [];
   const scheduledQuestions = currentStream?.questions.filter((question) => question.status === "DRAFT") ?? [];
 
   const selectedQuestion = useMemo(() => {
@@ -374,6 +404,18 @@ export function AdminOverview({
           .split("\n")
           .map((entry) => entry.trim())
           .filter(Boolean),
+        settings:
+          questionDraft.inputType === "SCALE"
+            ? {
+                min: questionDraft.settings.min,
+                max: questionDraft.settings.max,
+                step: questionDraft.settings.step,
+              }
+            : questionDraft.inputType === "WORD_COUNT"
+              ? {
+                  maxWords: questionDraft.settings.maxWords,
+                }
+              : undefined,
       }),
     });
 
@@ -409,10 +451,36 @@ export function AdminOverview({
   const streamPreviewUrl = liveStream?.embedUrl ?? scheduledStream?.embedUrl ?? currentStream?.embedUrl ?? null;
   const streamEditorId = liveStream?.streamId ?? scheduledStream?.streamId ?? currentStream?.id ?? streams.drafts[0]?.id ?? null;
   const streamDisplayTitle = liveStream?.title ?? scheduledStream?.title ?? currentStream?.title ?? "Nessuna live in onda";
-  const deskActiveQuestion = activeQuestions[0] ?? activeQuestion ?? null;
+  const deskActiveQuestion = timerTick >= 0 && activeQuestion && !isQuestionExpired(activeQuestion) ? activeQuestion : null;
   const nextQuestion = scheduledQuestions[0] ?? null;
   const archivedQuestions = questionArchive.slice(0, 12);
   const recentPastStreams = streams.past.slice(0, 3);
+
+  useEffect(() => {
+    if (selectedResults?.latestSubmissions?.length && ["OPEN", "WORD_COUNT"].includes(selectedResults.type)) {
+      const ids = selectedResults.latestSubmissions.map((entry) => entry.id);
+      setEmbedSelectionIds(ids);
+      setFeaturedEmbedAnswerId(ids[0] ?? null);
+      return;
+    }
+
+    setEmbedSelectionIds([]);
+    setFeaturedEmbedAnswerId(null);
+  }, [selectedQuestionId, selectedResults]);
+
+  async function updateEmbed(payload: unknown) {
+    const response = await fetch("/api/admin/embed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      setError("Impossibile aggiornare l'embed.");
+    }
+  }
 
   return (
     <div className="relative space-y-6 pb-28">
@@ -509,7 +577,9 @@ export function AdminOverview({
                 <p className="mt-2 text-sm text-ink/60">
                   {deskActiveQuestion
                     ? `${deskActiveQuestion.inputType} · ${deskActiveQuestion.audienceType}`
-                    : "Quando mandi una domanda live la vedi qui."}
+                    : activeQuestion && isQuestionExpired(activeQuestion)
+                      ? "Il timer della domanda e finito."
+                      : "Quando mandi una domanda live la vedi qui."}
                 </p>
                 {deskActiveQuestion ? (
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -572,7 +642,7 @@ export function AdminOverview({
                       disabled={!liveStream}
                     >
                       <option value="OPEN">Aperta</option>
-                      <option value="WORD_COUNT">Word count</option>
+                      <option value="WORD_COUNT">Word cloud</option>
                       <option value="SCALE">Scala</option>
                       <option value="SINGLE_CHOICE">Scelta singola</option>
                       <option value="MULTIPLE_CHOICE">Scelta multipla</option>
@@ -597,6 +667,64 @@ export function AdminOverview({
                       disabled={!liveStream}
                     />
                   </div>
+                  {questionDraft.inputType === "SCALE" ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <input
+                        type="number"
+                        value={questionDraft.settings.min}
+                        onChange={(event) =>
+                          setQuestionDraft((current) => ({
+                            ...current,
+                            settings: { ...current.settings, min: Number(event.target.value) },
+                          }))
+                        }
+                        className="h-12 rounded-2xl border border-ocean/10 px-3"
+                        placeholder="Min"
+                        disabled={!liveStream}
+                      />
+                      <input
+                        type="number"
+                        value={questionDraft.settings.max}
+                        onChange={(event) =>
+                          setQuestionDraft((current) => ({
+                            ...current,
+                            settings: { ...current.settings, max: Number(event.target.value) },
+                          }))
+                        }
+                        className="h-12 rounded-2xl border border-ocean/10 px-3"
+                        placeholder="Max"
+                        disabled={!liveStream}
+                      />
+                      <input
+                        type="number"
+                        value={questionDraft.settings.step}
+                        onChange={(event) =>
+                          setQuestionDraft((current) => ({
+                            ...current,
+                            settings: { ...current.settings, step: Number(event.target.value) },
+                          }))
+                        }
+                        className="h-12 rounded-2xl border border-ocean/10 px-3"
+                        placeholder="Step"
+                        disabled={!liveStream}
+                      />
+                    </div>
+                  ) : null}
+                  {questionDraft.inputType === "WORD_COUNT" ? (
+                    <input
+                      type="number"
+                      value={questionDraft.settings.maxWords}
+                      onChange={(event) =>
+                        setQuestionDraft((current) => ({
+                          ...current,
+                          settings: { ...current.settings, maxWords: Number(event.target.value) },
+                        }))
+                      }
+                      className="h-12 w-full rounded-2xl border border-ocean/10 px-3"
+                      placeholder="Numero massimo di parole"
+                      disabled={!liveStream}
+                    />
+                  ) : null}
                   {["SINGLE_CHOICE", "MULTIPLE_CHOICE"].includes(questionDraft.inputType) ? (
                     <textarea
                       value={questionDraft.options}
@@ -644,7 +772,32 @@ export function AdminOverview({
                 </div>
 
                 <div className="min-h-[220px]">
-                  <h3 className="text-lg font-semibold text-ink">Risposte associate</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-lg font-semibold text-ink">Risposte associate</h3>
+                    {selectedQuestion ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            updateEmbed({
+                              kind: "question",
+                              questionId: selectedQuestion.id,
+                              selectedAnswerIds:
+                                selectedResults?.type === "OPEN" || selectedResults?.type === "WORD_COUNT"
+                                  ? embedSelectionIds
+                                  : undefined,
+                              featuredAnswerId: selectedResults?.type === "OPEN" ? featuredEmbedAnswerId : null,
+                            })
+                          }
+                        >
+                          Mostra su embed
+                        </Button>
+                        <Button variant="ghost" onClick={() => updateEmbed({ kind: "none" })}>
+                          Svuota embed
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                   {selectedQuestion ? <p className="mt-3 line-clamp-2 text-sm font-semibold text-ink">{selectedQuestion.text}</p> : null}
                   <div className="mt-4 space-y-2">
                     {selectedResultsLoading ? (
@@ -656,10 +809,41 @@ export function AdminOverview({
                     ) : !selectedResults ? (
                       <p className="text-sm text-ink/60">Seleziona una domanda per vedere le risposte.</p>
                     ) : selectedResults.latestSubmissions?.length ? (
-                      selectedResults.latestSubmissions.slice(0, 12).map((entry, index) => (
-                        <div key={`${entry.value}-${index}`} className="rounded-2xl border border-ocean/10 bg-white px-3 py-2">
-                          <p className="text-sm font-medium text-ink">{entry.value || "-"}</p>
-                          <p className="text-xs text-ink/50">{entry.classLabel ?? "Classe non indicata"}</p>
+                      selectedResults.latestSubmissions.slice(0, 12).map((entry) => (
+                        <div key={entry.id} className="rounded-2xl border border-ocean/10 bg-white px-3 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-ink">{entry.value || "-"}</p>
+                              <p className="text-xs text-ink/50">{entry.classLabel ?? "Classe non indicata"}</p>
+                            </div>
+                            {selectedResults.type === "OPEN" || selectedResults.type === "WORD_COUNT" ? (
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-2 text-xs text-ink/55">
+                                  <input
+                                    type="checkbox"
+                                    checked={embedSelectionIds.includes(entry.id)}
+                                    onChange={(event) =>
+                                      setEmbedSelectionIds((current) =>
+                                        event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id),
+                                      )
+                                    }
+                                  />
+                                  Embed
+                                </label>
+                                {selectedResults.type === "OPEN" ? (
+                                  <label className="flex items-center gap-2 text-xs text-ink/55">
+                                    <input
+                                      type="radio"
+                                      name="featured-open-answer"
+                                      checked={featuredEmbedAnswerId === entry.id}
+                                      onChange={() => setFeaturedEmbedAnswerId(entry.id)}
+                                    />
+                                    In grande
+                                  </label>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       ))
                     ) : (

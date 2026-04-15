@@ -15,6 +15,31 @@ type ClassAudienceFilter = {
   section: string;
 };
 
+function tokenizeWordCloudValue(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9àèéìòùáíóúäëïöüç]+/i)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function getQuestionScaleSettings(question: { settings: Prisma.JsonValue | null }) {
+  const settings = (question.settings as Record<string, number> | null) ?? {};
+  return {
+    min: Number(settings.min ?? 1),
+    max: Number(settings.max ?? 5),
+    step: Number(settings.step ?? 1),
+  };
+}
+
+function isExpiredTimer(question: { status: QuestionStatus; openedAt: Date | null; timerSeconds: number | null }) {
+  if (question.status !== QuestionStatus.LIVE || !question.openedAt || !question.timerSeconds) {
+    return false;
+  }
+
+  return question.openedAt.getTime() + question.timerSeconds * 1000 <= Date.now();
+}
+
 export async function getCurrentStreamStatus(filter?: ClassAudienceFilter): Promise<StreamStatusResponse> {
   const audienceWhere = filter
     ? {
@@ -118,12 +143,26 @@ export async function getActiveQuestion() {
     orderBy: { openedAt: "desc" },
   });
 
+  if (question && isExpiredTimer(question)) {
+    await prisma.question.update({
+      where: { id: question.id },
+      data: {
+        status: QuestionStatus.CLOSED,
+        resultsVisible: false,
+      },
+    });
+    return null;
+  }
+
   return question ? mapQuestion(question) : null;
 }
 
-export function buildResults(question: QuestionWithAnswers): ResultsPayload {
-  const totalAnswers = question.answers.length;
-  const latestSubmissions = question.answers
+export function buildResults(question: QuestionWithAnswers, answerIds?: string[]): ResultsPayload {
+  const filteredAnswers = answerIds?.length
+    ? question.answers.filter((answer) => answerIds.includes(answer.id))
+    : question.answers;
+  const totalAnswers = filteredAnswers.length;
+  const latestSubmissions = filteredAnswers
     .slice(-18)
     .reverse()
     .map((answer) => {
@@ -134,15 +173,19 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
 
       if (question.inputType === QuestionInputType.OPEN || question.inputType === QuestionInputType.WORD_COUNT) {
         return {
+          id: answer.id,
           value: String((answer.value as { text?: string }).text ?? ""),
           classLabel,
+          createdAt: answer.createdAt.toISOString(),
         };
       }
 
       if (question.inputType === QuestionInputType.SCALE) {
         return {
+          id: answer.id,
           value: String((answer.value as { value?: number }).value ?? ""),
           classLabel,
+          createdAt: answer.createdAt.toISOString(),
         };
       }
 
@@ -151,14 +194,18 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
           ? ((answer.value as { values?: string[] }).values as string[])
           : [];
         return {
+          id: answer.id,
           value: values.join(", "),
           classLabel,
+          createdAt: answer.createdAt.toISOString(),
         };
       }
 
       return {
+        id: answer.id,
         value: String((answer.value as { value?: string }).value ?? ""),
         classLabel,
+        createdAt: answer.createdAt.toISOString(),
       };
     });
 
@@ -166,9 +213,10 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
     return {
       questionId: question.id,
       type: question.inputType,
+      questionText: question.text,
       totalAnswers,
       entries: [],
-      latestAnswers: question.answers
+      latestAnswers: filteredAnswers
         .slice(-18)
         .reverse()
         .map((answer) => String((answer.value as { text?: string }).text ?? "")),
@@ -178,50 +226,58 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
 
   if (question.inputType === QuestionInputType.WORD_COUNT) {
     const counts = new Map<string, number>();
-    question.answers.forEach((answer) => {
-      const raw = String((answer.value as { text?: string }).text ?? "")
-        .trim()
-        .toLowerCase();
-      if (!raw) {
-        return;
-      }
-      counts.set(raw, (counts.get(raw) ?? 0) + 1);
+    filteredAnswers.forEach((answer) => {
+      const raw = String((answer.value as { text?: string }).text ?? "");
+      tokenizeWordCloudValue(raw).forEach((word) => {
+        counts.set(word, (counts.get(word) ?? 0) + 1);
+      });
     });
 
     return {
       questionId: question.id,
       type: question.inputType,
+      questionText: question.text,
       totalAnswers,
       entries: Array.from(counts.entries())
         .map(([label, value]) => ({ label, value }))
         .sort((a, b) => b.value - a.value)
-        .slice(0, 20),
+        .slice(0, 36),
       latestSubmissions,
     };
   }
 
   if (question.inputType === QuestionInputType.SCALE) {
-    const settings = (question.settings as Record<string, number> | null) ?? {};
-    const min = Number(settings.min ?? 1);
-    const max = Number(settings.max ?? 5);
-    const step = Number(settings.step ?? 1);
+    const { min, max, step } = getQuestionScaleSettings(question);
     const counts = new Map<string, number>();
+    let sum = 0;
 
     for (let value = min; value <= max; value += step) {
       counts.set(String(value), 0);
     }
 
-    question.answers.forEach((answer) => {
-      const key = String((answer.value as { value?: number }).value ?? "");
+    filteredAnswers.forEach((answer) => {
+      const numericValue = Number((answer.value as { value?: number }).value ?? NaN);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+      const key = String(numericValue);
       counts.set(key, (counts.get(key) ?? 0) + 1);
+      sum += numericValue;
     });
 
     return {
       questionId: question.id,
       type: question.inputType,
+      questionText: question.text,
       totalAnswers,
-      entries: Array.from(counts.entries()).map(([label, value]) => ({ label, value })),
+      entries: Array.from(counts.entries()).map(([label, value]) => ({
+        label,
+        value,
+        percentage: totalAnswers ? Math.round((value / totalAnswers) * 100) : 0,
+      })),
       latestSubmissions,
+      average: totalAnswers ? Number((sum / totalAnswers).toFixed(1)) : null,
+      scale: { min, max, step },
     };
   }
 
@@ -229,7 +285,7 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
   const options = Array.isArray(question.options) ? question.options.map(String) : [];
   options.forEach((option) => counts.set(option, 0));
 
-  question.answers.forEach((answer) => {
+  filteredAnswers.forEach((answer) => {
     if (question.inputType === QuestionInputType.MULTIPLE_CHOICE) {
       const values = Array.isArray((answer.value as { values?: string[] }).values)
         ? ((answer.value as { values?: string[] }).values as string[])
@@ -245,8 +301,13 @@ export function buildResults(question: QuestionWithAnswers): ResultsPayload {
   return {
     questionId: question.id,
     type: question.inputType,
+    questionText: question.text,
     totalAnswers,
-    entries: Array.from(counts.entries()).map(([label, value]) => ({ label, value })),
+    entries: Array.from(counts.entries()).map(([label, value]) => ({
+      label,
+      value,
+      percentage: totalAnswers ? Math.round((value / totalAnswers) * 100) : 0,
+    })),
     latestSubmissions,
   };
 }

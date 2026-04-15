@@ -24,6 +24,11 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
     const step = Number(question.settings?.step ?? 1);
     return { min, max, step };
   }, [question.settings]);
+  const maxWords = Number(question.settings?.maxWords ?? 3);
+  const wordsUsed = text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 
   async function submit() {
     setSubmitting(true);
@@ -45,13 +50,30 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
   return (
     <div className="space-y-4">
       {(question.inputType === "OPEN" || question.inputType === "WORD_COUNT") && (
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          className="min-h-28 w-full rounded-2xl border border-ocean/15 bg-white px-4 py-3 text-lg outline-none ring-ocean/20 transition focus:ring-4"
-          placeholder="Scrivi qui la tua risposta"
-          disabled={disabled || submitting}
-        />
+        <div className="space-y-2">
+          <textarea
+            value={text}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              if (question.inputType === "WORD_COUNT") {
+                const nextWords = nextValue.trim().split(/\s+/).filter(Boolean);
+                if (nextWords.length > maxWords) {
+                  setText(nextWords.slice(0, maxWords).join(" "));
+                  return;
+                }
+              }
+              setText(nextValue);
+            }}
+            className="min-h-28 w-full rounded-2xl border border-ocean/15 bg-white px-4 py-3 text-lg outline-none ring-ocean/20 transition focus:ring-4"
+            placeholder={question.inputType === "WORD_COUNT" ? "Scrivi fino al numero massimo di parole" : "Scrivi qui la tua risposta"}
+            disabled={disabled || submitting}
+          />
+          {question.inputType === "WORD_COUNT" ? (
+            <p className="text-sm text-ink/55">
+              {wordsUsed}/{maxWords} parole
+            </p>
+          ) : null}
+        </div>
       )}
 
       {question.inputType === "SCALE" && (

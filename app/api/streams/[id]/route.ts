@@ -64,6 +64,10 @@ export async function PUT(
                   max: question.settings?.max ?? 5,
                   step: question.settings?.step ?? 1,
                 }
+              : question.inputType === "WORD_COUNT"
+                ? {
+                    maxWords: question.settings?.maxWords ?? 3,
+                  }
               : undefined,
           order: index,
         })),
