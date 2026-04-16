@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { parseClassesInput } from "@/lib/classes";
 import { prisma } from "@/lib/prisma";
 import { broadcast } from "@/lib/socket-bridge";
@@ -13,6 +14,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const contentType = request.headers.get("content-type") ?? "";
 
   const payload =

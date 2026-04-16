@@ -1,11 +1,16 @@
 import { QuestionStatus, StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { getResultsForQuestion, mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(request: Request) {
+  if (!(await isAdminAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const payload = (await request.json()) as {
     text: string;
     inputType: string;

@@ -58,10 +58,7 @@ export function StudentStreamView({
   }, [year, section]);
 
   useEffect(() => {
-    QRCode.toDataURL(answerUrl, {
-      width: 360,
-      margin: 1,
-    }).then(setQrDataUrl);
+    QRCode.toDataURL(answerUrl, { width: 320, margin: 1 }).then(setQrDataUrl);
   }, [answerUrl]);
 
   useEffect(() => {
@@ -70,15 +67,10 @@ export function StudentStreamView({
     function onConnect() {
       setConnected(true);
       socket.emit("viewer:join", { year, section }, (response: { ok?: boolean } | undefined) => {
-        if (response?.ok === false) {
-          socket.disconnect();
-        }
+        if (response?.ok === false) socket.disconnect();
       });
     }
-
-    function onDisconnect() {
-      setConnected(false);
-    }
+    function onDisconnect() { setConnected(false); }
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
@@ -87,17 +79,10 @@ export function StudentStreamView({
       setQuestion(payload);
       setSubmitted(false);
     });
-    socket.on("question:close", () => {
-      setQuestion(null);
-      setSubmitted(false);
-    });
-    socket.on("results:update", (payload: ResultsPayload) => {
-      setAnswersCount(payload.totalAnswers);
-    });
+    socket.on("question:close", () => { setQuestion(null); setSubmitted(false); });
+    socket.on("results:update", (payload: ResultsPayload) => setAnswersCount(payload.totalAnswers));
 
-    if (socket.connected) {
-      onConnect();
-    }
+    if (socket.connected) onConnect();
 
     return () => {
       socket.off("connect", onConnect);
@@ -109,9 +94,7 @@ export function StudentStreamView({
     };
   }, [year, section]);
 
-  useEffect(() => {
-    questionRef.current = question;
-  }, [question]);
+  useEffect(() => { questionRef.current = question; }, [question]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -119,80 +102,54 @@ export function StudentStreamView({
       const payload = (await response.json()) as StreamStatusResponse;
       setStatus(payload);
     }, 5000);
-
     return () => clearInterval(interval);
   }, [year, section]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
       const response = await fetch("/api/questions/active", { cache: "no-store" });
-      if (!response.ok) {
-        return;
-      }
+      if (!response.ok) return;
       const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
       const current = questionRef.current;
-      if (payload.question?.id !== current?.id) {
-        setQuestion(payload.question);
-        setSubmitted(false);
-      }
-      if (!payload.question && current) {
-        setQuestion(null);
-        setSubmitted(false);
-      }
-      if (payload.results) {
-        setAnswersCount(payload.results.totalAnswers);
-      }
+      if (payload.question?.id !== current?.id) { setQuestion(payload.question); setSubmitted(false); }
+      if (!payload.question && current) { setQuestion(null); setSubmitted(false); }
+      if (payload.results) setAnswersCount(payload.results.totalAnswers);
     }, 4000);
-
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (status.status !== "live") {
-      return;
-    }
-
+    if (status.status !== "live") return;
     const element = document.documentElement;
-    const canFullscreen = "requestFullscreen" in element;
-    if (canFullscreen && !document.fullscreenElement) {
+    if ("requestFullscreen" in element && !document.fullscreenElement) {
       element.requestFullscreen?.().catch(() => undefined);
     }
   }, [status]);
 
   useEffect(() => {
-    if (!question?.timerSeconds || !question.openedAt) {
-      setCountdown(null);
-      return;
-    }
-
+    if (!question?.timerSeconds || !question.openedAt) { setCountdown(null); return; }
     const tick = () => {
       const expiresAt = new Date(question.openedAt!).getTime() + question.timerSeconds! * 1000;
       setCountdown(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
     };
-
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [question]);
 
   useEffect(() => {
-    if (!viewerQuestionSuccess && !viewerQuestionNoLiveError) {
-      return;
-    }
-
+    if (!viewerQuestionSuccess && !viewerQuestionNoLiveError) return;
     const timeout = setTimeout(() => {
       setViewerQuestionSuccess(false);
       setViewerQuestionNoLiveError(false);
     }, 1800);
-
     return () => clearTimeout(timeout);
   }, [viewerQuestionSuccess, viewerQuestionNoLiveError]);
 
   useEffect(() => {
     return () => {
-      if (viewerQuestionContentTimeoutRef.current !== null) {
+      if (viewerQuestionContentTimeoutRef.current !== null)
         window.clearTimeout(viewerQuestionContentTimeoutRef.current);
-      }
     };
   }, []);
 
@@ -210,7 +167,6 @@ export function StudentStreamView({
     setViewerQuestionFeedback("");
     setViewerQuestionSuccess(false);
     setViewerQuestionNoLiveError(false);
-
     viewerQuestionContentTimeoutRef.current = window.setTimeout(() => {
       setViewerQuestionContentState("expanded");
       viewerQuestionContentTimeoutRef.current = null;
@@ -225,46 +181,26 @@ export function StudentStreamView({
   }
 
   const showQuestionPanel = useMemo(() => {
-    if (!question) {
-      return false;
-    }
-    if (question.audienceType === "INDIVIDUAL") {
-      return true;
-    }
-    if (submitted) {
-      return false;
-    }
-    if (countdown !== null && countdown <= 0) {
-      return false;
-    }
+    if (!question) return false;
+    if (question.audienceType === "INDIVIDUAL") return true;
+    if (submitted) return false;
+    if (countdown !== null && countdown <= 0) return false;
     return true;
   }, [question, submitted, countdown]);
 
   async function submitAnswer(value: unknown) {
-    if (!question) {
-      return;
-    }
-
+    if (!question) return;
     await fetch(`/api/questions/${question.id}/answer`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        classYear: year,
-        classSection: section,
-        value,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classYear: year, classSection: section, value }),
     });
-
     setSubmitted(true);
   }
 
   async function submitViewerQuestion() {
     const text = viewerQuestionText.trim();
-    if (!text || viewerQuestionSubmitting) {
-      return;
-    }
+    if (!text || viewerQuestionSubmitting) return;
 
     setViewerQuestionSubmitting(true);
     setViewerQuestionFeedback("");
@@ -273,38 +209,26 @@ export function StudentStreamView({
       const streamId = status.status === "live" ? status.streamId : null;
       const response = await fetch("/api/audience-questions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          classYear: year,
-          classSection: section,
-          streamId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, classYear: year, classSection: section, streamId }),
       });
 
       if (!response.ok) {
         if (response.status === 429) {
           const retryAfter = response.headers.get("Retry-After");
           setViewerQuestionFeedback(
-            retryAfter
-              ? `Troppi invii. Riprova tra ${retryAfter} secondi.`
-              : "Troppi invii ravvicinati.",
+            retryAfter ? `Troppi invii. Riprova tra ${retryAfter}s.` : "Troppi invii ravvicinati.",
           );
           return;
         }
-
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         const errorMessage = payload?.error ?? "Invio non riuscito.";
-
         if (errorMessage === "Nessuna live attiva") {
           closeViewerQuestion();
           setViewerQuestionFeedback("");
           setViewerQuestionNoLiveError(true);
           return;
         }
-
         setViewerQuestionFeedback(errorMessage);
         return;
       }
@@ -320,61 +244,79 @@ export function StudentStreamView({
   }
 
   return (
-    <main className="relative min-h-screen bg-ink">
+    <main className="relative min-h-screen bg-zinc-950">
+      {/* ── Full-screen content ── */}
       <section className="fixed inset-0 z-0 flex overflow-hidden">
+        {/* Main stream area */}
         <div className="relative h-full flex-1">
-          <div className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between gap-4">
+          {/* Overlay controls */}
+          <div className="absolute left-4 right-4 top-4 z-20 flex items-center justify-between gap-3">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft transition-transform duration-200 hover:-translate-y-0.5"
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 py-2 text-sm font-medium text-white shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-black/60"
             >
               <ArrowLeft className="h-4 w-4" />
-              Classe {getYearLabel(year)}
-              {section}
+              {getYearLabel(year)}{section}
             </Link>
-            <div className="flex items-center gap-2 rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-ink shadow-soft">
-              <span className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-sage" : "bg-terracotta"}`} />
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-2 text-sm font-medium text-white backdrop-blur-md">
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-success" : "bg-destructive"}`}
+              />
               {connected ? "Connesso" : "Riconnessione..."}
             </div>
           </div>
+
+          {/* No stream */}
           {status.status === "no_stream" ? (
-            <div className="flex h-full items-center justify-center p-10 text-center text-3xl font-semibold text-white">
-              Nessuna stream programmata attualmente
+            <div className="flex h-full flex-col items-center justify-center p-10 text-center">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-white/30">Classtreamer</p>
+              <h2 className="text-3xl font-semibold text-white/80">Nessuna stream programmata</h2>
             </div>
           ) : null}
 
+          {/* Scheduled */}
           {status.status === "scheduled" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-4 p-10 text-center text-white">
-              <div className="h-5 w-5 animate-pulseSoft rounded-full bg-gold" />
-              <h2 className="text-4xl font-semibold">La stream andrà in onda a breve</h2>
-              <p className="text-xl text-white/80">{status.title}</p>
-              <p className="text-lg text-white/70">{formatDateTime(status.scheduledAt)}</p>
+            <div className="flex h-full flex-col items-center justify-center gap-6 p-10 text-center">
+              <div className="relative flex h-5 w-5 items-center justify-center">
+                <span className="absolute h-5 w-5 animate-ping rounded-full bg-warning/40" />
+                <span className="h-2.5 w-2.5 rounded-full bg-warning" />
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/40">In arrivo</p>
+                <h2 className="text-4xl font-semibold text-white">{status.title}</h2>
+                <p className="mt-2 text-lg text-white/50">{formatDateTime(status.scheduledAt)}</p>
+              </div>
             </div>
           ) : null}
 
+          {/* Live embed */}
           {status.status === "live" ? (
             <iframe src={status.embedUrl} className="h-full w-full" allow="fullscreen; autoplay" />
           ) : null}
         </div>
 
+        {/* ── Question panel ── */}
         <aside
-          className={`h-full overflow-hidden bg-white/95 shadow-2xl transition-[width,transform,opacity] duration-500 ease-out ${
+          className={`h-full overflow-hidden border-white/10 bg-background/95 backdrop-blur-sm transition-[width,opacity] duration-500 ease-out ${
             showQuestionPanel
-              ? "w-1/3 translate-x-0 border-l border-white/10 p-6 opacity-100"
-              : "pointer-events-none w-0 translate-x-full border-l-0 p-0 opacity-0"
+              ? "w-[380px] border-l opacity-100"
+              : "pointer-events-none w-0 border-l-0 opacity-0"
           }`}
         >
+          {/* CLASS audience */}
           {question?.audienceType === "CLASS" ? (
-            <div className="flex h-full flex-col">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.16em] text-ocean/70">Domanda attiva</p>
-                  <h2 className="text-2xl font-semibold">{question.text}</h2>
+            <div className="flex h-full flex-col p-6">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted">
+                    Domanda attiva
+                  </p>
+                  <h2 className="text-xl font-semibold leading-snug text-foreground">{question.text}</h2>
                 </div>
                 {countdown !== null ? (
-                  <span className="rounded-full bg-gold/20 px-3 py-1 text-sm font-semibold text-ocean">
-                    {countdown}s
-                  </span>
+                  <div className="shrink-0 rounded-full border border-warning/30 bg-warning/10 px-3 py-1">
+                    <span className="tabular-nums text-sm font-semibold text-warning-foreground">{countdown}s</span>
+                  </div>
                 ) : null}
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -383,45 +325,55 @@ export function StudentStreamView({
             </div>
           ) : null}
 
+          {/* INDIVIDUAL audience */}
           {question?.audienceType === "INDIVIDUAL" ? (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">Partecipa dal telefono</p>
-              <h2 className="mt-3 text-3xl font-semibold text-ink">{question.text}</h2>
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest text-muted">
+                Partecipa dal telefono
+              </p>
+              <h2 className="mb-6 text-2xl font-semibold text-foreground">{question.text}</h2>
               {qrDataUrl ? (
                 <Image
                   src={qrDataUrl}
                   alt="QR code per rispondere"
-                  width={288}
-                  height={288}
+                  width={220}
+                  height={220}
                   unoptimized
-                  className="mt-8 w-72 rounded-[28px] border border-ocean/10 bg-white p-4 shadow-soft"
+                  className="w-56 rounded-2xl border border-border bg-white p-3 shadow-md"
                 />
               ) : null}
-              <p className="mt-6 break-all rounded-2xl bg-ocean/5 px-4 py-3 text-lg text-ink/70">{answerUrl}</p>
-              <p className="mt-4 text-xl font-semibold text-ocean">Risposte ricevute: {answersCount}</p>
+              <p className="mt-5 break-all rounded-lg bg-surface-raised px-3 py-2 font-mono text-xs text-muted">
+                {answerUrl}
+              </p>
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted">
+                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                <span>
+                  <strong className="font-semibold text-foreground">{answersCount}</strong> risposte ricevute
+                </span>
+              </div>
             </div>
           ) : null}
         </aside>
       </section>
 
+      {/* ── Viewer question floating pill ── */}
       <div
         className={`pointer-events-none fixed bottom-6 z-40 flex justify-center px-4 transition-[left,right] duration-500 ease-out ${
-          showQuestionPanel ? "left-0 right-[33.333333%]" : "inset-x-0"
+          showQuestionPanel ? "left-0 right-[380px]" : "inset-x-0"
         }`}
       >
         <div className="pointer-events-auto flex w-full flex-col items-center">
           <div
-            className={`relative overflow-hidden bg-white shadow-2xl transition-[width,height,border-radius,padding] duration-300 ease-out ${
-              viewerQuestionExpanded
-                ? "h-[72px] rounded-[30px] p-3"
-                : "h-14 rounded-full p-0"
+            className={`relative overflow-hidden border border-white/10 bg-black/60 shadow-xl backdrop-blur-md transition-[width,height,border-radius] duration-300 ease-out ${
+              viewerQuestionExpanded ? "h-[64px] rounded-[24px]" : "h-11 rounded-full"
             }`}
-            style={{ width: viewerQuestionExpanded ? "min(48rem, 100%)" : "230px" }}
+            style={{ width: viewerQuestionExpanded ? "min(44rem, 100%)" : "192px" }}
           >
+            {/* Compact trigger */}
             <button
               type="button"
               onClick={openViewerQuestion}
-              className={`absolute inset-0 flex items-center justify-center overflow-hidden rounded-full px-6 text-sm font-semibold text-ocean transition-opacity duration-200 ${
+              className={`absolute inset-0 flex items-center justify-center overflow-hidden rounded-full text-sm font-medium text-white/80 transition-opacity duration-200 ${
                 viewerQuestionContentState === "compact"
                   ? "opacity-100"
                   : "pointer-events-none opacity-0"
@@ -438,32 +390,29 @@ export function StudentStreamView({
                   viewerQuestionSuccess || viewerQuestionNoLiveError ? "opacity-0" : "opacity-100"
                 }`}
               >
-                Fai una domanda →
+                Fai una domanda
               </span>
               <span
                 className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
                   viewerQuestionSuccess ? "opacity-100" : "opacity-0"
                 }`}
               >
-                <Check className="h-5 w-5" />
+                <Check className="h-4 w-4 text-success" />
               </span>
               <span
-                className={`absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-terracotta transition-opacity duration-300 ${
+                className={`absolute inset-0 flex items-center justify-center gap-2 text-destructive transition-opacity duration-300 ${
                   viewerQuestionNoLiveError ? "opacity-100" : "opacity-0"
                 }`}
               >
-                <X className="h-5 w-5" />
-                <span>Nessuna live attiva</span>
+                <X className="h-4 w-4" />
+                Nessuna live attiva
               </span>
-              <span className="opacity-0">Fai una domanda →</span>
             </button>
 
+            {/* Expanded form */}
             <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitViewerQuestion();
-              }}
-              className={`absolute inset-0 flex items-center gap-3 p-3 transition-[opacity,transform] duration-300 ${
+              onSubmit={(e) => { e.preventDefault(); void submitViewerQuestion(); }}
+              className={`absolute inset-0 flex items-center gap-2 px-3 transition-[opacity,transform] duration-300 ${
                 viewerQuestionContentState === "expanded"
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none translate-y-2 opacity-0"
@@ -471,34 +420,34 @@ export function StudentStreamView({
             >
               <input
                 value={viewerQuestionText}
-                onChange={(event) => setViewerQuestionText(event.target.value)}
-                placeholder="Scrivi qui la tua domanda"
-                className="h-12 flex-1 rounded-full bg-transparent px-5 text-base text-ink outline-none ring-ocean/20 transition focus:ring-4"
+                onChange={(e) => setViewerQuestionText(e.target.value)}
+                placeholder="La tua domanda..."
+                className="h-10 flex-1 rounded-full bg-white/10 px-4 text-sm text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-white/20"
                 maxLength={280}
               />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeViewerQuestion}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200"
-                  aria-label="Chiudi"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-                <button
-                  type="submit"
-                  disabled={viewerQuestionSubmitting || !viewerQuestionText.trim()}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-ocean text-white shadow-soft transition-transform duration-200 hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-50"
-                  aria-label="Invia domanda"
-                >
-                  <SendHorizontal className="h-5 w-5" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={closeViewerQuestion}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/60 transition-colors hover:bg-white/20"
+                aria-label="Chiudi"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                type="submit"
+                disabled={viewerQuestionSubmitting || !viewerQuestionText.trim()}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-zinc-950 transition-all hover:-translate-y-px disabled:pointer-events-none disabled:opacity-40"
+                aria-label="Invia domanda"
+              >
+                <SendHorizontal className="h-4 w-4" />
+              </button>
             </form>
           </div>
 
           {viewerQuestionFeedback ? (
-            <p className="mt-2 px-5 text-sm text-terracotta">{viewerQuestionFeedback}</p>
+            <p className="mt-2 rounded-full bg-black/50 px-3 py-1 text-xs text-destructive">
+              {viewerQuestionFeedback}
+            </p>
           ) : null}
         </div>
       </div>

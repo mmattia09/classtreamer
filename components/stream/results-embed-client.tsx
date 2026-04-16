@@ -7,80 +7,86 @@ import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
 import type { EmbedPayload } from "@/lib/types";
 
-const EMBED_STAGE_CLASS =
-  "relative min-h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_top,rgba(101,118,246,0.28),transparent_32%),radial-gradient(circle_at_20%_20%,rgba(255,107,95,0.18),transparent_24%),linear-gradient(180deg,#091523_0%,#0d1f35_52%,#132b4b_100%)]";
+/* ── Cinematic background ───────────────────────────────────── */
+const BG =
+  "absolute inset-0 bg-[radial-gradient(ellipse_at_20%_20%,rgba(129,140,248,0.12),transparent_50%),radial-gradient(ellipse_at_80%_80%,rgba(52,211,153,0.08),transparent_50%),linear-gradient(180deg,#050508_0%,#09090e_60%,#0c0c15_100%)]";
 
-const EMBED_STAGE_OVERLAY_CLASS =
-  "pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.1),transparent_28%,transparent_72%,rgba(255,255,255,0.08))]";
+const NOISE =
+  "pointer-events-none absolute inset-0 opacity-[0.025] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJuIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC42NSIgbnVtT2N0YXZlcz0iMyIgc3RpdGNoVGlsZXM9InN0aXRjaCIvPjwvZmlsdGVyPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbHRlcj0idXJsKCNuKSIgb3BhY2l0eT0iMSIvPjwvc3ZnPg==')]";
 
-export function ResultsEmbedClient({
-  initialEmbed,
-}: {
-  initialEmbed: EmbedPayload;
-}) {
+export function ResultsEmbedClient({ initialEmbed }: { initialEmbed: EmbedPayload }) {
   const [embed, setEmbed] = useState(initialEmbed);
 
   useEffect(() => {
-    const previousBodyBackground = document.body.style.background;
-    const previousBodyBackgroundImage = document.body.style.backgroundImage;
-    const previousHtmlBackground = document.documentElement.style.background;
-
     document.body.style.background = "transparent";
     document.body.style.backgroundImage = "none";
     document.documentElement.style.background = "transparent";
+    document.documentElement.classList.remove("dark");
 
     const socket = getSocket();
-    const refresh = async () => {
-      const response = await fetch("/api/embed/state", { cache: "no-store" });
-      if (!response.ok) {
-        return;
-      }
-      setEmbed((await response.json()) as EmbedPayload);
-    };
 
-    socket.on("question:push", refresh);
-    socket.on("question:close", refresh);
-    socket.on("results:update", refresh);
-    socket.on("viewer-question:new", refresh);
+    // Only react to explicit embed:update events pushed by the admin.
+    // results:update / question:push do NOT auto-change the embed —
+    // the admin must press "Manda a embed" (or enable auto-sync).
     socket.on("embed:update", (payload: EmbedPayload) => setEmbed(payload));
 
     return () => {
-      document.body.style.background = previousBodyBackground;
-      document.body.style.backgroundImage = previousBodyBackgroundImage;
-      document.documentElement.style.background = previousHtmlBackground;
-      socket.off("question:push");
-      socket.off("question:close");
-      socket.off("results:update");
-      socket.off("viewer-question:new");
       socket.off("embed:update");
     };
   }, []);
 
+  /* ── Empty state ─────────────────────────────────────────── */
   if (embed.kind === "none") {
-    return <div className={EMBED_STAGE_CLASS} />;
-  }
-
-  if (embed.kind === "viewer-question") {
     return (
-      <main className={`${EMBED_STAGE_CLASS} flex items-center justify-center p-8 text-white`}>
-        <div className={EMBED_STAGE_OVERLAY_CLASS} />
-        <div className="relative w-full max-w-5xl rounded-[40px] border border-white/18 bg-[linear-gradient(135deg,rgba(8,20,34,0.78),rgba(18,43,75,0.68))] p-10 shadow-[0_28px_80px_rgba(3,9,20,0.4)] backdrop-blur-md">
-          <p className="text-sm uppercase tracking-[0.24em] text-white/60">Domanda dal pubblico</p>
-          <h1 className="mt-4 text-5xl font-semibold leading-tight">{embed.viewerQuestion.text}</h1>
-          <p className="mt-6 text-xl text-white/70">
-            {embed.viewerQuestion.classYear === null || !embed.viewerQuestion.classSection
-              ? "Pubblico"
-              : `${getYearLabel(embed.viewerQuestion.classYear)}${embed.viewerQuestion.classSection}`}
-          </p>
-        </div>
-      </main>
+      <div className="relative min-h-screen w-screen overflow-hidden">
+        <div className={BG} />
+      </div>
     );
   }
 
+  /* ── Viewer question ─────────────────────────────────────── */
+  if (embed.kind === "viewer-question") {
+    const { classYear, classSection, text } = embed.viewerQuestion;
+    const classLabel =
+      classYear && classSection ? `${getYearLabel(classYear)}${classSection}` : "Pubblico";
+
+    return (
+      <div className="relative flex min-h-screen w-screen items-center justify-center overflow-hidden p-12">
+        <div className={BG} />
+        <div className={NOISE} />
+
+        {/* Glow halo */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(129,140,248,0.06)] blur-3xl" />
+
+        <div className="relative z-10 w-full max-w-5xl animate-fade-in">
+          {/* Label chip */}
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-white/50 backdrop-blur-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#818CF8] animate-pulse" />
+            Domanda dal pubblico
+          </div>
+
+          {/* Question text */}
+          <h1 className="text-5xl font-bold leading-tight text-white">
+            {text}
+          </h1>
+
+          {/* Class */}
+          <p className="mt-6 text-xl font-medium text-white/40">{classLabel}</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Question results ────────────────────────────────────── */
   return (
-    <main className={`${EMBED_STAGE_CLASS} p-6 text-white`}>
-      <div className={EMBED_STAGE_OVERLAY_CLASS} />
-      <div className="relative h-[calc(100vh-3rem)]">
+    <div className="relative flex min-h-screen w-screen flex-col overflow-hidden p-8">
+      <div className={BG} />
+      <div className={NOISE} />
+
+      {/* Subtle top-accent line */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(129,140,248,0.4)] to-transparent" />
+
+      <div className="relative z-10 flex h-[calc(100vh-4rem)] flex-col">
         <ResultsView
           questionText={embed.question.text}
           results={embed.results}
@@ -88,6 +94,6 @@ export function ResultsEmbedClient({
           featuredAnswerId={embed.featuredAnswerId ?? null}
         />
       </div>
-    </main>
+    </div>
   );
 }

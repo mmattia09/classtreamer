@@ -3,10 +3,11 @@
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
+
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 export function AdminLoginForm() {
   const router = useRouter();
@@ -21,22 +22,16 @@ export function AdminLoginForm() {
 
     const response = await fetch("/api/auth/login", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
     });
 
     if (!response.ok) {
       if (response.status === 429) {
         const retryAfter = response.headers.get("Retry-After");
-        setError(
-          retryAfter
-            ? `Troppi tentativi. Riprova tra ${retryAfter} secondi.`
-            : "Troppi tentativi. Riprova tra poco.",
-        );
+        setError(retryAfter ? `Troppi tentativi. Riprova tra ${retryAfter}s.` : "Troppi tentativi.");
       } else {
-        setError("Password non valida");
+        setError("Password non valida.");
       }
       setLoading(false);
       return;
@@ -47,35 +42,56 @@ export function AdminLoginForm() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl items-center px-6">
-      <Card className="w-full space-y-6">
-        <div className="flex items-center justify-between">
-          <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Tecnico</p>
-          <Button asChild variant="ghost" className="gap-2">
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="w-full max-w-sm">
+        {/* Logo area */}
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground shadow-md">
+            <Lock className="h-5 w-5" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-xl font-semibold text-foreground">Accesso amministratore</h1>
+            <p className="mt-0.5 text-sm text-muted">Area riservata al personale tecnico</p>
+          </div>
+        </div>
+
+        {/* Form card */}
+        <div className="rounded-xl border border-border bg-surface p-6 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                className="h-10"
+              />
+            </div>
+
+            {error ? (
+              <p className="text-sm text-destructive-foreground">{error}</p>
+            ) : null}
+
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Accesso in corso..." : "Accedi"}
+            </Button>
+          </form>
+        </div>
+
+        <div className="mt-4 text-center">
+          <Button asChild variant="ghost" size="sm">
             <Link href="/">
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-3.5 w-3.5" />
               Torna alle classi
             </Link>
           </Button>
         </div>
-        <div className="space-y-2">
-          <h1 className="text-4xl font-semibold">Accesso amministratore</h1>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-            className="h-14 w-full rounded-2xl border border-ocean/10 bg-white px-4 outline-none ring-ocean/20 focus:ring-4"
-          />
-          {error ? <p className="text-sm text-terracotta">{error}</p> : null}
-          <Button type="submit" disabled={loading} className="h-14 w-full text-lg">
-            Entra
-          </Button>
-        </form>
-      </Card>
-    </main>
+      </div>
+    </div>
   );
 }

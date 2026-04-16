@@ -18,17 +18,14 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
   const [scale, setScale] = useState(String(question.settings?.min ?? 1));
   const [submitting, setSubmitting] = useState(false);
 
-  const scaleRange = useMemo(() => {
-    const min = Number(question.settings?.min ?? 1);
-    const max = Number(question.settings?.max ?? 5);
-    const step = Number(question.settings?.step ?? 1);
-    return { min, max, step };
-  }, [question.settings]);
+  const scaleRange = useMemo(() => ({
+    min: Number(question.settings?.min ?? 1),
+    max: Number(question.settings?.max ?? 5),
+    step: Number(question.settings?.step ?? 1),
+  }), [question.settings]);
+
   const maxWords = Number(question.settings?.maxWords ?? 3);
-  const wordsUsed = text
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
+  const wordsUsed = text.trim().split(/\s+/).filter(Boolean).length;
 
   async function submit() {
     setSubmitting(true);
@@ -53,93 +50,92 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
         <div className="space-y-2">
           <textarea
             value={text}
-            onChange={(event) => {
-              const nextValue = event.target.value;
+            onChange={(e) => {
+              const v = e.target.value;
               if (question.inputType === "WORD_COUNT") {
-                const nextWords = nextValue.trim().split(/\s+/).filter(Boolean);
-                if (nextWords.length > maxWords) {
-                  setText(nextWords.slice(0, maxWords).join(" "));
-                  return;
-                }
+                const words = v.trim().split(/\s+/).filter(Boolean);
+                if (words.length > maxWords) { setText(words.slice(0, maxWords).join(" ")); return; }
               }
-              setText(nextValue);
+              setText(v);
             }}
-            className="min-h-28 w-full rounded-2xl border border-ocean/15 bg-white px-4 py-3 text-lg outline-none ring-ocean/20 transition focus:ring-4"
-            placeholder={question.inputType === "WORD_COUNT" ? "Scrivi fino al numero massimo di parole" : "Scrivi qui la tua risposta"}
+            className="min-h-28 w-full rounded-xl border border-border bg-surface px-4 py-3 text-base text-foreground placeholder:text-muted resize-none outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background transition-shadow"
+            placeholder={question.inputType === "WORD_COUNT" ? `Fino a ${maxWords} parole` : "Scrivi la tua risposta"}
             disabled={disabled || submitting}
           />
           {question.inputType === "WORD_COUNT" ? (
-            <p className="text-sm text-ink/55">
-              {wordsUsed}/{maxWords} parole
-            </p>
+            <p className="text-xs text-muted text-right">{wordsUsed}/{maxWords}</p>
           ) : null}
         </div>
       )}
 
       {question.inputType === "SCALE" && (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          <div className="flex justify-between text-xs text-muted">
+            <span>{scaleRange.min}</span>
+            <span className="text-3xl font-bold text-accent">{scale}</span>
+            <span>{scaleRange.max}</span>
+          </div>
           <input
             type="range"
             min={scaleRange.min}
             max={scaleRange.max}
             step={scaleRange.step}
             value={scale}
-            onChange={(event) => setScale(event.target.value)}
+            onChange={(e) => setScale(e.target.value)}
             disabled={disabled || submitting}
-            className="w-full accent-ocean"
+            className="w-full accent-accent h-2"
           />
-          <div className="text-center text-3xl font-semibold text-ocean">{scale}</div>
         </div>
       )}
 
       {question.inputType === "SINGLE_CHOICE" && (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
           {question.options?.map((option) => (
             <label
               key={option}
-              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ocean/15 bg-white px-4 py-4"
+              className="flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 transition-colors hover:bg-surface-raised has-[:checked]:border-accent has-[:checked]:bg-accent-subtle"
             >
               <input
                 type="radio"
                 value={option}
                 checked={single === option}
-                onChange={(event) => setSingle(event.target.value)}
+                onChange={(e) => setSingle(e.target.value)}
                 disabled={disabled || submitting}
+                className="accent-accent"
               />
-              <span className="text-lg">{option}</span>
+              <span className="text-base text-foreground">{option}</span>
             </label>
           ))}
         </div>
       )}
 
       {question.inputType === "MULTIPLE_CHOICE" && (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
           {question.options?.map((option) => (
             <label
               key={option}
-              className="flex cursor-pointer items-center gap-3 rounded-2xl border border-ocean/15 bg-white px-4 py-4"
+              className="flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 transition-colors hover:bg-surface-raised has-[:checked]:border-accent has-[:checked]:bg-accent-subtle"
             >
               <input
                 type="checkbox"
                 value={option}
                 checked={multiple.includes(option)}
-                onChange={(event) =>
-                  setMultiple((current) =>
-                    event.target.checked
-                      ? [...current, option]
-                      : current.filter((item) => item !== option),
+                onChange={(e) =>
+                  setMultiple((cur) =>
+                    e.target.checked ? [...cur, option] : cur.filter((i) => i !== option),
                   )
                 }
                 disabled={disabled || submitting}
+                className="accent-accent"
               />
-              <span className="text-lg">{option}</span>
+              <span className="text-base text-foreground">{option}</span>
             </label>
           ))}
         </div>
       )}
 
-      <Button onClick={submit} disabled={disabled || submitting} className="h-14 w-full text-lg">
-        Invia risposta
+      <Button onClick={submit} disabled={disabled || submitting} size="lg" className="w-full">
+        {submitting ? "Invio..." : "Invia risposta"}
       </Button>
     </div>
   );

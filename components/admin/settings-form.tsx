@@ -1,215 +1,157 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { serializeClassesInput, type ClassEntry } from "@/lib/classes";
-import type { AppSettings } from "@/lib/settings";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { compactClassesInput, parseClassesInput, serializeClassesInput, type ClassEntry } from "@/lib/classes";
 
 type Props = {
   initialClasses: string;
   initialAppName: string;
   initialAppIcon: string;
-  initialAppBgColor: string;
-  initialAppMainColor: string;
-  initialAppLightColor: string;
 };
 
-export function AdminSettingsForm({
-  initialClasses,
-  initialAppName,
-  initialAppIcon,
-  initialAppBgColor,
-  initialAppMainColor,
-  initialAppLightColor,
-}: Props) {
+export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIcon }: Props) {
   const [classesValue, setClassesValue] = useState(initialClasses);
   const [appName, setAppName] = useState(initialAppName);
   const [appIcon, setAppIcon] = useState(initialAppIcon);
-  const [appBgColor, setAppBgColor] = useState(initialAppBgColor);
-  const [appMainColor, setAppMainColor] = useState(initialAppMainColor);
-  const [appLightColor, setAppLightColor] = useState(initialAppLightColor);
-  const [savingClasses, setSavingClasses] = useState(false);
-  const [savingBrand, setSavingBrand] = useState(false);
-  const [classesNote, setClassesNote] = useState<string | null>(null);
-  const [brandNote, setBrandNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
 
-  async function saveClasses() {
-    setSavingClasses(true);
-    setClassesNote(null);
+  async function saveAll() {
+    setSaving(true);
+    setNote(null);
     try {
-      const response = await fetch("/api/classes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classes: classesValue }),
-      });
-      const payload = (await response.json()) as { ok?: boolean; classes?: ClassEntry[] };
-      if (payload.ok && payload.classes) {
-        setClassesValue(serializeClassesInput(payload.classes));
-        setClassesNote("Classi aggiornate.");
-      } else {
-        setClassesNote("Non riesco ad aggiornare le classi.");
-      }
-    } catch {
-      setClassesNote("Non riesco ad aggiornare le classi.");
-    } finally {
-      setSavingClasses(false);
-    }
-  }
-
-  async function saveBranding() {
-    setSavingBrand(true);
-    setBrandNote(null);
-    try {
-      const response = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          appName,
-          appIcon,
-          appBgColor,
-          appMainColor,
-          appLightColor,
+      const [brandRes, classesRes] = await Promise.all([
+        fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ appName, appIcon }),
         }),
-      });
-      const payload = (await response.json()) as { ok?: boolean; settings?: AppSettings };
-      if (payload.ok && payload.settings) {
-        setAppName(payload.settings.appName);
-        setAppIcon(payload.settings.appIcon);
-        setAppBgColor(payload.settings.appBgColor);
-        setAppMainColor(payload.settings.appMainColor);
-        setAppLightColor(payload.settings.appLightColor);
-        setBrandNote("Tema aggiornato.");
-      } else {
-        setBrandNote("Non riesco ad aggiornare il tema.");
+        fetch("/api/classes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ classes: classesValue }),
+        }),
+      ]);
+
+      const [brandPayload, classesPayload] = await Promise.all([
+        brandRes.json() as Promise<{ ok?: boolean; settings?: { appName: string; appIcon: string } }>,
+        classesRes.json() as Promise<{ ok?: boolean; classes?: ClassEntry[] }>,
+      ]);
+
+      if (brandPayload.ok && brandPayload.settings) {
+        setAppName(brandPayload.settings.appName);
+        setAppIcon(brandPayload.settings.appIcon);
       }
+      if (classesPayload.ok && classesPayload.classes) {
+        // Auto-compact the classes input after saving
+        setClassesValue(compactClassesInput(classesPayload.classes));
+      }
+
+      const allOk = brandRes.ok && classesRes.ok;
+      setNote({ ok: allOk, text: allOk ? "Impostazioni salvate." : "Errore durante il salvataggio." });
     } catch {
-      setBrandNote("Non riesco ad aggiornare il tema.");
+      setNote({ ok: false, text: "Impossibile salvare le impostazioni." });
     } finally {
-      setSavingBrand(false);
+      setSaving(false);
     }
   }
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4">
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold">Tema e branding</h2>
-          <p className="text-sm text-ink/65">
-            Modifica il nome dell&apos;app, il logo/fallback e i colori principali.
-          </p>
+    <div className="divide-y divide-border">
+      {/* ── Branding ── */}
+      <div className="p-6">
+        <div className="mb-5">
+          <h2 className="text-sm font-semibold text-foreground">Branding</h2>
+          <p className="mt-0.5 text-sm text-muted">Nome e logo dell&apos;applicazione.</p>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Nome app</div>
-            <p className="text-xs text-ink/60">Titolo mostrato in home, header e metadata.</p>
-            <input
-              value={appName}
-              onChange={(event) => setAppName(event.target.value)}
-              className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-              placeholder="Nome app"
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Icona</div>
-            <p className="text-xs text-ink/60">URL dell&apos;immagine usata come favicon e logo. Lascia vuoto per usare quello predefinito.</p>
-            <input
-              value={appIcon}
-              onChange={(event) => setAppIcon(event.target.value)}
-              className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-              placeholder="https://esempio.it/logo.png"
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Colore sfondo</div>
-            <p className="text-xs text-ink/60">Usato per il background principale.</p>
-            <div className="flex items-center gap-3">
-              <input
-                value={appBgColor}
-                onChange={(event) => setAppBgColor(event.target.value)}
-                className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-                placeholder="#f8f9fa"
-              />
-              <input
-                type="color"
-                value={appBgColor}
-                onChange={(event) => setAppBgColor(event.target.value)}
-                className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
-                aria-label="Selettore colore sfondo"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Colore principale</div>
-            <p className="text-xs text-ink/60">Colore per bottoni, testi chiave e accenti.</p>
-            <div className="flex items-center gap-3">
-              <input
-                value={appMainColor}
-                onChange={(event) => setAppMainColor(event.target.value)}
-                className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-                placeholder="#002d61"
-              />
-              <input
-                type="color"
-                value={appMainColor}
-                onChange={(event) => setAppMainColor(event.target.value)}
-                className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
-                aria-label="Selettore colore principale"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Colore secondario</div>
-            <p className="text-xs text-ink/60">Colore per evidenze leggere e dettagli.</p>
-            <div className="flex items-center gap-3">
-              <input
-                value={appLightColor}
-                onChange={(event) => setAppLightColor(event.target.value)}
-                className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
-                placeholder="#003f87"
-              />
-              <input
-                type="color"
-                value={appLightColor}
-                onChange={(event) => setAppLightColor(event.target.value)}
-                className="h-12 w-16 rounded-xl border border-ocean/10 bg-white p-1"
-                aria-label="Selettore colore secondario"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" onClick={saveBranding} disabled={savingBrand}>
-            {savingBrand ? "Salvataggio..." : "Salva tema"}
-          </Button>
-          {brandNote ? <span className="text-sm text-ink/70">{brandNote}</span> : null}
-        </div>
-      </section>
 
-      <section className="space-y-4">
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold">Classi abilitate</h2>
-          <p className="text-sm text-ink/65">
-            Inserisci le classi separate da virgola. Gli spazi sono ammessi dopo la virgola.
-          </p>
-          <p className="text-sm text-ink/60">
-            Le classi senza numero iniziale finiscono nell&apos;anno &quot;*&quot;.
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="appName">Nome app</Label>
+            <Input
+              id="appName"
+              value={appName}
+              onChange={(e) => setAppName(e.target.value)}
+              placeholder="Classtreamer"
+            />
+            <p className="text-xs text-muted">Mostrato nell&apos;header e nei metadati.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="appIcon">URL icona</Label>
+            <Input
+              id="appIcon"
+              value={appIcon}
+              onChange={(e) => setAppIcon(e.target.value)}
+              placeholder="https://example.com/logo.png"
+            />
+            <p className="text-xs text-muted">Lascia vuoto per il logo predefinito.</p>
+          </div>
+        </div>
+
+        {/* Logo preview */}
+        <div className="mt-4 flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center">
+            {appIcon ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={appIcon}
+                alt="Logo preview"
+                className="h-12 w-12 object-contain"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                onLoad={(e) => { (e.target as HTMLImageElement).style.display = ""; }}
+              />
+            ) : (
+              <span className="text-2xl font-bold text-accent">
+                {appName ? appName.slice(0, 1).toUpperCase() : "?"}
+              </span>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">{appName || "—"}</p>
+            <p className="text-xs text-muted">Anteprima in tempo reale</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Classes ── */}
+      <div className="p-6">
+        <div className="mb-5">
+          <h2 className="text-sm font-semibold text-foreground">Classi abilitate</h2>
+          <p className="mt-0.5 text-sm text-muted">
+            Separale con virgola. Puoi usare la notazione a intervallo:{" "}
+            <code className="rounded bg-surface-raised px-1 py-0.5 text-xs font-mono">
+              1A-E, 2A-E, 3A-D, 3E, INSEGNANTI
+            </code>
+            . Il testo verrà compattato automaticamente al salvataggio.
           </p>
         </div>
-        <textarea
+        <Textarea
           value={classesValue}
-          onChange={(event) => setClassesValue(event.target.value)}
+          onChange={(e) => setClassesValue(e.target.value)}
           rows={4}
-          className="w-full rounded-2xl border border-ocean/10 bg-white px-4 py-3 text-base outline-none ring-ocean/20 focus:ring-4"
-          placeholder="1A,1B,1C,2A,2B,3IA,3B,4A-IM,4Z,5AAA,5BBB,INSEGNANTI"
+          placeholder="1A-E, 2A-E, 3A-D, 3E, 4A-E, 5A-E, INSEGNANTI"
+          className="font-mono text-sm"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" onClick={saveClasses} disabled={savingClasses}>
-            {savingClasses ? "Salvataggio..." : "Salva classi"}
-          </Button>
-          {classesNote ? <span className="text-sm text-ink/70">{classesNote}</span> : null}
-        </div>
-      </section>
+      </div>
+
+      {/* ── Save button ── */}
+      <div className="flex items-center gap-4 px-6 py-4">
+        <Button onClick={saveAll} disabled={saving}>
+          {saving ? "Salvataggio..." : "Salva impostazioni"}
+        </Button>
+        {note ? (
+          <p className={`text-sm ${note.ok ? "text-success-foreground" : "text-destructive-foreground"}`}>
+            {note.text}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
