@@ -15,8 +15,7 @@ app.prepare().then(() => {
   const httpServer = createServer(handler);
   const io = new Server(httpServer, {
     cors: {
-      origin: true,
-      credentials: true,
+      origin: false,
     },
     path: "/socket.io",
   });

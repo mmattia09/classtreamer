@@ -1,26 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Clock3, MonitorPlay, TriangleAlert } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  FileText,
+  List,
+  MonitorPlay,
+  MonitorX,
+  Play,
+  Plus,
+  Radio,
+  RefreshCw,
+  SendHorizontal,
+  Square,
+  TriangleAlert,
+  Users,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
 import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
+/* ─── Constants ─────────────────────────────────────────────────── */
+
+const INPUT_TYPE_LABELS: Record<string, string> = {
+  OPEN: "Aperta",
+  WORD_COUNT: "Word cloud",
+  SCALE: "Scala",
+  SINGLE_CHOICE: "Singola",
+  MULTIPLE_CHOICE: "Multipla",
+};
+
+/* ─── Types ─────────────────────────────────────────────────────── */
+
 type OverviewPayload = {
   streamStatus: StreamStatusResponse;
   activeQuestion: QuestionPayload | null;
   results: ResultsPayload | null;
   currentStream: CurrentStreamSummary | null;
-  streams: {
-    upcoming: StreamSummary[];
-    past: StreamSummary[];
-    drafts: StreamSummary[];
-  };
+  streams: { upcoming: StreamSummary[]; past: StreamSummary[]; drafts: StreamSummary[] };
   questionArchive: QuestionArchiveEntry[];
   viewerQuestions: ViewerQuestionPayload[];
 };
@@ -31,134 +61,193 @@ type QuestionDraft = {
   audienceType: string;
   timerSeconds: number;
   options: string;
-  settings: {
-    min: number;
-    max: number;
-    step: number;
-    maxWords: number;
-  };
+  settings: { min: number; max: number; step: number; maxWords: number };
 };
 
-type DashboardNotification = {
+type Notification = {
   id: number;
   title: string;
   description?: string;
   tone: "info" | "success" | "warning";
 };
 
-function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
-  if (entry.classYear === null || !entry.classSection) {
-    return "Pubblico";
-  }
+/* ─── Helpers ───────────────────────────────────────────────────── */
 
+function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
+  if (!entry.classYear || !entry.classSection) return "Pubblico";
   return `${getYearLabel(entry.classYear)}${entry.classSection}`;
 }
 
 function formatLiveElapsed(startedAt: string | null | undefined, now: number) {
-  if (!startedAt) {
-    return "00:00";
-  }
-
-  const elapsedMs = Math.max(0, now - new Date(startedAt).getTime());
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  if (!startedAt) return "00:00";
+  const totalSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-function getStreamStatusBadge(status: StreamStatusResponse["status"]) {
-  if (status === "live") {
-    return "bg-terracotta/15 text-terracotta";
-  }
-
-  if (status === "scheduled") {
-    return "bg-gold/20 text-ocean";
-  }
-
-  return "bg-slate-200 text-slate-700";
+function isQuestionExpired(q: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined) {
+  if (!q?.openedAt || !q.timerSeconds) return false;
+  return new Date(q.openedAt).getTime() + q.timerSeconds * 1000 <= Date.now();
 }
 
-function getNotificationToneClasses(tone: DashboardNotification["tone"]) {
-  if (tone === "success") {
-    return "border-sage/25 bg-white text-ink";
-  }
-
-  if (tone === "warning") {
-    return "border-terracotta/25 bg-white text-ink";
-  }
-
-  return "border-ocean/15 bg-white text-ink";
+function formatTimerRemaining(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function isQuestionExpired(question: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined) {
-  if (!question?.openedAt || !question.timerSeconds) {
-    return false;
-  }
+/* ─── Sub-components ────────────────────────────────────────────── */
 
-  return new Date(question.openedAt).getTime() + question.timerSeconds * 1000 <= Date.now();
-}
-
-function LiveStatusPill({
-  status,
-  startedAt,
-}: {
-  status: StreamStatusResponse["status"];
-  startedAt?: string | null;
-}) {
-  const [mounted, setMounted] = useState(false);
+function LivePill({ status, startedAt }: { status: StreamStatusResponse["status"]; startedAt?: string | null }) {
   const [now, setNow] = useState<number | null>(null);
-
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted || status !== "live" || !startedAt) {
-      setNow(null);
-      return;
-    }
-
+    if (status !== "live" || !startedAt) { setNow(null); return; }
     setNow(Date.now());
-    const interval = window.setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
+    const iv = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(iv);
+  }, [startedAt, status]);
 
-    return () => window.clearInterval(interval);
-  }, [mounted, startedAt, status]);
+  if (status === "live") {
+    return (
+      <Badge variant="live" className="gap-1.5 tabular-nums">
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        Live{now !== null && startedAt ? ` · ${formatLiveElapsed(startedAt, now)}` : ""}
+      </Badge>
+    );
+  }
+  if (status === "scheduled") return <Badge variant="warning">Programmata</Badge>;
+  return <Badge variant="secondary">Offline</Badge>;
+}
 
-  const label = status === "live" ? "In onda" : status === "scheduled" ? "Programmata" : "Offline";
-  const elapsed = mounted && now !== null && status === "live" && startedAt ? formatLiveElapsed(startedAt, now) : null;
-
+/** Mini bar-chart row */
+function EntryBar({ label, value, total, max }: { label: string; value: number; total: number; max: number }) {
+  const widthPct = max > 0 ? Math.round((value / max) * 100) : 0;
+  const sharePct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] ${getStreamStatusBadge(status)}`}>
-      {status === "live" ? <Clock3 className="h-4 w-4" /> : null}
-      <span>{label}</span>
-      {elapsed ? <span className="text-[11px] tracking-[0.14em]">{elapsed}</span> : null}
-    </span>
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="max-w-[55%] truncate text-xs text-foreground">{label}</span>
+        <span className="shrink-0 text-xs text-muted">{value} <span className="text-muted/60">({sharePct}%)</span></span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-surface-raised">
+        <div
+          className="h-full rounded-full bg-accent transition-all duration-500"
+          style={{ width: `${widthPct}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
-export function AdminOverview({
-  initialOverview,
-  focusSection,
+/** Results panel body — no header, just data */
+function ResultsBody({
+  results,
+  embedSelectionIds,
+  featuredEmbedAnswerId,
+  onEmbedSelectionChange,
+  onFeaturedChange,
 }: {
-  initialOverview: OverviewPayload;
-  focusSection?: string;
+  results: ResultsPayload;
+  embedSelectionIds: string[];
+  featuredEmbedAnswerId: string | null;
+  onEmbedSelectionChange: (ids: string[]) => void;
+  onFeaturedChange: (id: string | null) => void;
 }) {
+  const hasEntries = results.entries.length > 0;
+  const hasSubmissions = (results.latestSubmissions?.length ?? 0) > 0;
+
+  if (hasEntries) {
+    const maxVal = Math.max(...results.entries.map((e) => e.value), 1);
+
+    // Compute mean for SCALE
+    let mean: number | null = null;
+    if (results.type === "SCALE") {
+      const totalWeight = results.entries.reduce((s, e) => s + e.value, 0);
+      if (totalWeight > 0) {
+        mean = results.entries.reduce((s, e) => s + Number(e.label) * e.value, 0) / totalWeight;
+      }
+    }
+
+    return (
+      <div className="space-y-3">
+        {mean !== null && (
+          <div className="flex items-center gap-2 rounded-lg bg-accent-subtle px-3 py-2">
+            <span className="text-xs text-muted">Media</span>
+            <span className="text-lg font-bold tabular-nums text-accent">{mean.toFixed(1)}</span>
+          </div>
+        )}
+        <div className="space-y-2.5">
+          {results.entries.map((e) => (
+            <EntryBar key={e.label} label={e.label} value={e.value} total={results.totalAnswers} max={maxVal} />
+          ))}
+        </div>
+        <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
+      </div>
+    );
+  }
+
+  if (hasSubmissions) {
+    const isOpen = ["OPEN", "WORD_COUNT"].includes(results.type);
+    return (
+      <div className="space-y-1.5">
+        {results.latestSubmissions!.slice(0, 20).map((entry) => (
+          <div key={entry.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm text-foreground">{entry.value || "—"}</p>
+              {entry.classLabel && <p className="text-[11px] text-muted">{entry.classLabel}</p>}
+            </div>
+            {isOpen && (
+              <div className="flex shrink-0 items-center gap-2">
+                <label title="Includi nell'embed" className="flex cursor-pointer items-center gap-1 text-[11px] text-muted">
+                  <input
+                    type="checkbox"
+                    checked={embedSelectionIds.includes(entry.id)}
+                    onChange={(e) =>
+                      onEmbedSelectionChange(
+                        e.target.checked ? [...embedSelectionIds, entry.id] : embedSelectionIds.filter((id) => id !== entry.id),
+                      )
+                    }
+                  />
+                  Embed
+                </label>
+                {results.type === "OPEN" && (
+                  <label title="In primo piano" className="flex cursor-pointer items-center gap-1 text-[11px] text-muted">
+                    <input
+                      type="radio"
+                      name="featured-answer"
+                      checked={featuredEmbedAnswerId === entry.id}
+                      onChange={() => onFeaturedChange(entry.id)}
+                    />
+                    Featured
+                  </label>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
+      </div>
+    );
+  }
+
+  return <p className="text-sm text-muted">Nessuna risposta ancora.</p>;
+}
+
+/* ─── Main component ────────────────────────────────────────────── */
+
+export function AdminOverview({ initialOverview }: { initialOverview: OverviewPayload }) {
   const [streamStatus, setStreamStatus] = useState(initialOverview.streamStatus);
-  const [currentStream, setCurrentStream] = useState<CurrentStreamSummary | null>(initialOverview.currentStream);
+  const [currentStream, setCurrentStream] = useState(initialOverview.currentStream);
   const [streams, setStreams] = useState(initialOverview.streams);
   const [questionArchive, setQuestionArchive] = useState(initialOverview.questionArchive);
   const [activeQuestion, setActiveQuestion] = useState(initialOverview.activeQuestion);
   const [results, setResults] = useState(initialOverview.results);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(
-    initialOverview.activeQuestion?.id ?? initialOverview.currentStream?.questions?.[0]?.id ?? null,
+    initialOverview.activeQuestion?.id ?? null,
   );
   const [selectedResults, setSelectedResults] = useState<ResultsPayload | null>(initialOverview.results);
   const [error, setError] = useState("");
@@ -168,58 +257,54 @@ export function AdminOverview({
     audienceType: "CLASS",
     timerSeconds: 60,
     options: "",
-    settings: {
-      min: 1,
-      max: 10,
-      step: 1,
-      maxWords: 3,
-    },
+    settings: { min: 1, max: 10, step: 1, maxWords: 3 },
   });
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selectedResultsLoading, setSelectedResultsLoading] = useState(false);
   const [embedSelectionIds, setEmbedSelectionIds] = useState<string[]>([]);
   const [featuredEmbedAnswerId, setFeaturedEmbedAnswerId] = useState<string | null>(null);
   const [timerTick, setTimerTick] = useState(0);
+  const [archiveOpen, setArchiveOpen] = useState(true);
   const [isPending, startTransition] = useTransition();
+
+  // Embed state tracking
+  const [embedQuestionId, setEmbedQuestionId] = useState<string | null>(null);
+  const [embedAutoSync, setEmbedAutoSync] = useState(false);
+
   const selectedQuestionRef = useRef(selectedQuestionId);
+  const embedQuestionIdRef = useRef(embedQuestionId);
+  const embedAutoSyncRef = useRef(embedAutoSync);
   const notificationIdRef = useRef(0);
   const notificationTimeoutsRef = useRef<number[]>([]);
   const resultsCacheRef = useRef(
-    new Map<string, ResultsPayload>(initialOverview.results ? [[initialOverview.results.questionId, initialOverview.results]] : []),
+    new Map<string, ResultsPayload>(
+      initialOverview.results ? [[initialOverview.results.questionId, initialOverview.results]] : [],
+    ),
   );
 
-  useEffect(() => {
-    selectedQuestionRef.current = selectedQuestionId;
-  }, [selectedQuestionId]);
+  useEffect(() => { selectedQuestionRef.current = selectedQuestionId; }, [selectedQuestionId]);
+  useEffect(() => { embedQuestionIdRef.current = embedQuestionId; }, [embedQuestionId]);
+  useEffect(() => { embedAutoSyncRef.current = embedAutoSync; }, [embedAutoSync]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setTimerTick((current) => current + 1);
-    }, 1000);
-
-    return () => window.clearInterval(interval);
+    const iv = window.setInterval(() => setTimerTick((n) => n + 1), 1000);
+    return () => window.clearInterval(iv);
   }, []);
 
-  function pushNotification(title: string, description: string | undefined, tone: DashboardNotification["tone"]) {
-    const id = notificationIdRef.current + 1;
-    notificationIdRef.current = id;
-
-    setNotifications((current) => [...current, { id, title, description, tone }].slice(-4));
-
-    const timeout = window.setTimeout(() => {
-      setNotifications((current) => current.filter((entry) => entry.id !== id));
-      notificationTimeoutsRef.current = notificationTimeoutsRef.current.filter((entry) => entry !== timeout);
-    }, 4200);
-
-    notificationTimeoutsRef.current.push(timeout);
+  function pushNotification(title: string, description: string | undefined, tone: Notification["tone"]) {
+    const id = ++notificationIdRef.current;
+    setNotifications((cur) => [...cur, { id, title, description, tone }].slice(-4));
+    const t = window.setTimeout(() => {
+      setNotifications((cur) => cur.filter((n) => n.id !== id));
+      notificationTimeoutsRef.current = notificationTimeoutsRef.current.filter((x) => x !== t);
+    }, 4500);
+    notificationTimeoutsRef.current.push(t);
   }
 
   async function refreshOverview() {
-    const response = await fetch("/api/admin/overview", { cache: "no-store" });
-    if (!response.ok) {
-      return;
-    }
-    const payload = (await response.json()) as OverviewPayload;
+    const res = await fetch("/api/admin/overview", { cache: "no-store" });
+    if (!res.ok) return;
+    const payload = (await res.json()) as OverviewPayload;
     startTransition(() => {
       setStreamStatus(payload.streamStatus);
       setCurrentStream(payload.currentStream);
@@ -227,52 +312,47 @@ export function AdminOverview({
       setQuestionArchive(payload.questionArchive);
       setActiveQuestion(payload.activeQuestion);
       setResults(payload.results);
-      if (payload.results) {
-        resultsCacheRef.current.set(payload.results.questionId, payload.results);
-      }
+      if (payload.results) resultsCacheRef.current.set(payload.results.questionId, payload.results);
     });
   }
 
   useEffect(() => {
     const socket = getSocket();
     socket.emit("admin:join");
-    socket.on("viewer-question:new", (payload: ViewerQuestionPayload) => {
-      pushNotification("Nuova domanda dal pubblico", `${formatViewerQuestionClassLabel(payload)} • ${payload.text}`, "info");
-    });
-    socket.on("results:update", (payload: ResultsPayload) => {
-      resultsCacheRef.current.set(payload.questionId, payload);
-      setResults(payload);
-      if (selectedQuestionRef.current === payload.questionId) {
-        setSelectedResults(payload);
+
+    socket.on("viewer-question:new", (p: ViewerQuestionPayload) =>
+      pushNotification("Domanda dal pubblico", `${formatViewerQuestionClassLabel(p)} · ${p.text}`, "info"),
+    );
+    socket.on("results:update", (p: ResultsPayload) => {
+      resultsCacheRef.current.set(p.questionId, p);
+      setResults(p);
+      if (selectedQuestionRef.current === p.questionId) setSelectedResults(p);
+      pushNotification("Risposte aggiornate", undefined, "success");
+      // Auto-sync: push immediately to embed if enabled and this is the embedded question
+      if (embedAutoSyncRef.current && embedQuestionIdRef.current === p.questionId) {
+        void fetch("/api/admin/embed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "question", questionId: p.questionId }),
+        });
       }
-      pushNotification("Risultati aggiornati", "Le risposte della domanda selezionata sono state aggiornate.", "success");
     });
-    socket.on("question:push", (payload: QuestionPayload) => {
-      setActiveQuestion(payload);
-      if (!selectedQuestionRef.current) {
-        setSelectedQuestionId(payload.id);
-      }
-      pushNotification("Domanda aggiornata", payload.text, "success");
+    socket.on("question:push", (p: QuestionPayload) => {
+      setActiveQuestion(p);
+      if (!selectedQuestionRef.current) setSelectedQuestionId(p.id);
+      pushNotification("Domanda live", p.text, "success");
       void refreshOverview();
     });
     socket.on("question:close", () => {
       setActiveQuestion(null);
-      setResults(null);
-      if (selectedQuestionRef.current === activeQuestion?.id) {
-        setSelectedResults(null);
-      }
-      pushNotification("Domanda chiusa", "La domanda live non è più visibile alle classi.", "warning");
+      pushNotification("Domanda chiusa", undefined, "warning");
       void refreshOverview();
     });
-    socket.on("stream:status", (payload: StreamStatusResponse) => {
-      setStreamStatus(payload);
-      if (payload.status === "live") {
-        pushNotification("Live in onda", payload.title, "success");
-      } else if (payload.status === "scheduled") {
-        pushNotification("Live programmata", payload.title, "info");
-      } else {
-        pushNotification("Live terminata", "Non ci sono stream attive in questo momento.", "warning");
-      }
+    socket.on("stream:status", (p: StreamStatusResponse) => {
+      setStreamStatus(p);
+      if (p.status === "live") pushNotification("Live in onda", (p as { title?: string }).title, "success");
+      else if (p.status === "scheduled") pushNotification("Live programmata", undefined, "info");
+      else pushNotification("Live terminata", undefined, "warning");
       void refreshOverview();
     });
 
@@ -283,647 +363,592 @@ export function AdminOverview({
       socket.off("question:close");
       socket.off("stream:status");
     };
-  }, [activeQuestion?.id]);
+  }, []); // intentional: socket setup only on mount
 
   useEffect(() => {
-    return () => {
-      notificationTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
-    };
+    return () => { notificationTimeoutsRef.current.forEach(window.clearTimeout); };
   }, []);
 
   useEffect(() => {
-    if (selectedQuestionId && results?.questionId === selectedQuestionId) {
-      resultsCacheRef.current.set(results.questionId, results);
-      setSelectedResults(results);
-      setSelectedResultsLoading(false);
-    }
-  }, [results, selectedQuestionId]);
+    const iv = setInterval(refreshOverview, 12000);
+    return () => clearInterval(iv);
+  }, []); // intentional: polling setup only on mount
 
   useEffect(() => {
-    if (!selectedQuestionId) {
-      setSelectedResults(null);
-      setSelectedResultsLoading(false);
-      return;
-    }
+    if (!selectedQuestionId) { setSelectedResults(null); setSelectedResultsLoading(false); return; }
     if (results?.questionId === selectedQuestionId) {
       resultsCacheRef.current.set(results.questionId, results);
       setSelectedResults(results);
       setSelectedResultsLoading(false);
       return;
     }
-
     const cached = resultsCacheRef.current.get(selectedQuestionId);
-    if (cached) {
-      setSelectedResults(cached);
-      setSelectedResultsLoading(false);
-      return;
-    }
+    if (cached) { setSelectedResults(cached); setSelectedResultsLoading(false); return; }
 
-    const controller = new AbortController();
-    const requestedId = selectedQuestionId;
+    const ctrl = new AbortController();
+    const reqId = selectedQuestionId;
     setSelectedResultsLoading(true);
-    void fetch(`/api/admin/questions/${selectedQuestionId}/summary`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => {
-        if (payload?.results) {
-          const nextResults = payload.results as ResultsPayload;
-          resultsCacheRef.current.set(nextResults.questionId, nextResults);
-          if (selectedQuestionRef.current === requestedId) {
-            setSelectedResults(nextResults);
-          }
+    void fetch(`/api/admin/questions/${selectedQuestionId}/summary`, { cache: "no-store", signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (p?.results) {
+          const r = p.results as ResultsPayload;
+          resultsCacheRef.current.set(r.questionId, r);
+          if (selectedQuestionRef.current === reqId) setSelectedResults(r);
         }
       })
-      .finally(() => {
-        if (selectedQuestionRef.current === requestedId) {
-          setSelectedResultsLoading(false);
-        }
-      })
+      .finally(() => { if (selectedQuestionRef.current === reqId) setSelectedResultsLoading(false); })
       .catch(() => undefined);
-    return () => controller.abort();
+    return () => ctrl.abort();
   }, [selectedQuestionId, results, results?.questionId]);
 
   useEffect(() => {
-    const interval = setInterval(refreshOverview, 12000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!focusSection) {
+    if (selectedResults?.latestSubmissions?.length && ["OPEN", "WORD_COUNT"].includes(selectedResults.type)) {
+      const ids = selectedResults.latestSubmissions.map((e) => e.id);
+      setEmbedSelectionIds(ids);
+      setFeaturedEmbedAnswerId(ids[0] ?? null);
       return;
     }
-    const target = document.getElementById(focusSection);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [focusSection]);
+    setEmbedSelectionIds([]);
+    setFeaturedEmbedAnswerId(null);
+  }, [selectedQuestionId, selectedResults]);
 
-  const scheduledQuestions = currentStream?.questions.filter((question) => question.status === "DRAFT") ?? [];
+  /* ── Derived state ── */
+  const liveStream = streamStatus.status === "live" ? streamStatus : null;
+  const scheduledStream = streamStatus.status === "scheduled" ? streamStatus : null;
+  const streamPreviewUrl = liveStream?.embedUrl ?? scheduledStream?.embedUrl ?? currentStream?.embedUrl ?? null;
+  const streamEditorId = liveStream?.streamId ?? scheduledStream?.streamId ?? currentStream?.id ?? streams.drafts[0]?.id ?? null;
+  const streamDisplayTitle = liveStream?.title ?? scheduledStream?.title ?? currentStream?.title ?? null;
+  const deskActiveQuestion = timerTick >= 0 && activeQuestion && !isQuestionExpired(activeQuestion) ? activeQuestion : null;
+  const scheduledQuestions = currentStream?.questions.filter((q) => q.status === "DRAFT") ?? [];
+  const nextQuestion = scheduledQuestions[0] ?? null;
+  const archivedQuestions = questionArchive.slice(0, 16);
+  const selectedQuestion = useMemo(
+    () =>
+      !selectedQuestionId
+        ? null
+        : (currentStream?.questions.find((q) => q.id === selectedQuestionId) ??
+          questionArchive.find((q) => q.id === selectedQuestionId) ??
+          null),
+    [currentStream?.questions, questionArchive, selectedQuestionId],
+  );
+  const embedQuestionText = embedQuestionId
+    ? (archivedQuestions.find((q) => q.id === embedQuestionId)?.text ??
+       currentStream?.questions.find((q) => q.id === embedQuestionId)?.text ?? null)
+    : null;
 
-  const selectedQuestion = useMemo(() => {
-    if (!selectedQuestionId) {
-      return null;
-    }
-    return (
-      currentStream?.questions.find((question) => question.id === selectedQuestionId) ??
-      questionArchive.find((question) => question.id === selectedQuestionId) ??
-      null
-    );
-  }, [currentStream?.questions, questionArchive, selectedQuestionId]);
+  // Timer remaining
+  const timerRemaining = useMemo(() => {
+    if (!deskActiveQuestion?.openedAt || !deskActiveQuestion?.timerSeconds) return null;
+    const expiresAt = new Date(deskActiveQuestion.openedAt).getTime() + deskActiveQuestion.timerSeconds * 1000;
+    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+  }, [deskActiveQuestion, timerTick]);
 
+  /* ── Actions ── */
   async function runAction(url: string) {
     setError("");
-    const response = await fetch(url, { method: "POST" });
-    if (!response.ok) {
-      setError("Impossibile completare l'azione richiesta.");
-      return;
-    }
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) { setError("Impossibile completare l'azione."); return; }
     await refreshOverview();
+  }
+
+  async function extendTimer(seconds: number) {
+    if (!deskActiveQuestion) return;
+    await fetch(`/api/admin/questions/${deskActiveQuestion.id}/extend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seconds }),
+    });
+    // Optimistically update the active question's timer display
+    setActiveQuestion((prev) => prev ? { ...prev, timerSeconds: (prev.timerSeconds ?? 0) + seconds } : prev);
   }
 
   async function handleCreateLiveQuestion() {
     setError("");
-    if (!questionDraft.text.trim()) {
-      setError("Scrivi il testo della domanda.");
-      return;
-    }
-
-    const response = await fetch("/api/admin/questions/live", {
+    if (!questionDraft.text.trim()) { setError("Scrivi il testo della domanda."); return; }
+    const res = await fetch("/api/admin/questions/live", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text: questionDraft.text,
         inputType: questionDraft.inputType,
         audienceType: questionDraft.audienceType,
         timerSeconds: questionDraft.timerSeconds,
-        options: questionDraft.options
-          .split("\n")
-          .map((entry) => entry.trim())
-          .filter(Boolean),
+        options: questionDraft.options.split("\n").map((s) => s.trim()).filter(Boolean),
         settings:
           questionDraft.inputType === "SCALE"
-            ? {
-                min: questionDraft.settings.min,
-                max: questionDraft.settings.max,
-                step: questionDraft.settings.step,
-              }
+            ? { min: questionDraft.settings.min, max: questionDraft.settings.max, step: questionDraft.settings.step }
             : questionDraft.inputType === "WORD_COUNT"
-              ? {
-                  maxWords: questionDraft.settings.maxWords,
-                }
+              ? { maxWords: questionDraft.settings.maxWords }
               : undefined,
       }),
     });
-
-    if (!response.ok) {
-      setError("Non è stato possibile inviare la domanda.");
-      return;
-    }
-
-    setQuestionDraft((current) => ({ ...current, text: "", options: "" }));
+    if (!res.ok) { setError("Impossibile inviare la domanda."); return; }
+    setQuestionDraft((d) => ({ ...d, text: "", options: "" }));
     await refreshOverview();
   }
 
   async function handleEndLive() {
-    if (!liveStream) {
-      return;
-    }
-
-    const firstConfirmation = window.confirm(`Terminare la live "${liveStream.title}"?`);
-    if (!firstConfirmation) {
-      return;
-    }
-
-    const secondConfirmation = window.confirm("Conferma finale: vuoi davvero interrompere la live adesso?");
-    if (!secondConfirmation) {
-      return;
-    }
-
+    if (!liveStream) return;
+    if (!window.confirm(`Terminare la live "${liveStream.title}"?`)) return;
+    if (!window.confirm("Conferma finale: vuoi davvero interrompere la live?")) return;
     await runAction(`/api/admin/streams/${liveStream.streamId}/end`);
   }
 
-  const liveStream = streamStatus.status === "live" ? streamStatus : null;
-  const scheduledStream = streamStatus.status === "scheduled" ? streamStatus : null;
-  const streamPreviewUrl = liveStream?.embedUrl ?? scheduledStream?.embedUrl ?? currentStream?.embedUrl ?? null;
-  const streamEditorId = liveStream?.streamId ?? scheduledStream?.streamId ?? currentStream?.id ?? streams.drafts[0]?.id ?? null;
-  const streamDisplayTitle = liveStream?.title ?? scheduledStream?.title ?? currentStream?.title ?? "Nessuna live in onda";
-  const deskActiveQuestion = timerTick >= 0 && activeQuestion && !isQuestionExpired(activeQuestion) ? activeQuestion : null;
-  const nextQuestion = scheduledQuestions[0] ?? null;
-  const archivedQuestions = questionArchive.slice(0, 12);
-  const recentPastStreams = streams.past.slice(0, 3);
-
-  useEffect(() => {
-    if (selectedResults?.latestSubmissions?.length && ["OPEN", "WORD_COUNT"].includes(selectedResults.type)) {
-      const ids = selectedResults.latestSubmissions.map((entry) => entry.id);
-      setEmbedSelectionIds(ids);
-      setFeaturedEmbedAnswerId(ids[0] ?? null);
-      return;
-    }
-
-    setEmbedSelectionIds([]);
-    setFeaturedEmbedAnswerId(null);
-  }, [selectedQuestionId, selectedResults]);
-
   async function updateEmbed(payload: unknown) {
-    const response = await fetch("/api/admin/embed", {
+    const res = await fetch("/api/admin/embed", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
-    if (!response.ok) {
-      setError("Impossibile aggiornare l'embed.");
-    }
+    if (!res.ok) setError("Impossibile aggiornare l'embed.");
   }
 
+  async function sendToEmbed() {
+    if (!selectedQuestion) return;
+    await updateEmbed({
+      kind: "question",
+      questionId: selectedQuestion.id,
+      selectedAnswerIds: ["OPEN", "WORD_COUNT"].includes(selectedResults?.type ?? "") ? embedSelectionIds : undefined,
+      featuredAnswerId: selectedResults?.type === "OPEN" ? featuredEmbedAnswerId : null,
+    });
+    setEmbedQuestionId(selectedQuestion.id);
+  }
+
+  async function clearEmbed() {
+    await updateEmbed({ kind: "none" });
+    setEmbedQuestionId(null);
+    setEmbedAutoSync(false);
+  }
+
+  /* ─── Render ─────────────────────────────────────────────────── */
   return (
-    <div className="relative space-y-6 pb-28">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm uppercase tracking-[0.24em] text-ocean/70">Area amministrativa</p>
-          <h1 className="text-4xl font-semibold text-ink">Dashboard live</h1>
+    <div className="space-y-5">
+      {/* ── Page header ── */}
+      <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
+
+      {/* ── Error alert ── */}
+      {error ? (
+        <div className="flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive-subtle px-3 py-2.5 text-sm text-destructive-foreground">
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          {error}
+          <button type="button" onClick={() => setError("")} className="ml-auto">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* ── Command strip ── */}
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+        <div className="min-w-0 flex-1">
+          {streamDisplayTitle ? (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+                {liveStream ? "In onda" : scheduledStream ? "Prossima" : "Ultima"}
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{streamDisplayTitle}</p>
+            </>
+          ) : (
+            <p className="text-sm text-muted">Nessuna stream configurata</p>
+          )}
+        </div>
+        <LivePill status={streamStatus.status} startedAt={liveStream?.liveStartedAt} />
+        <div className="flex shrink-0 items-center gap-2">
+          {streamEditorId ? (
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={`/admin/streams/${streamEditorId}`}>Modifica</Link>
+            </Button>
+          ) : (
+            <Button size="sm" asChild>
+              <Link href="/admin/streams/new">Nuova live</Link>
+            </Button>
+          )}
+          {!liveStream && streamEditorId ? (
+            <form action={`/api/admin/streams/${streamEditorId}/live`} method="post">
+              <Button type="submit" size="sm">Vai live</Button>
+            </form>
+          ) : null}
+          {liveStream ? (
+            <Button variant="destructive" size="sm" onClick={handleEndLive}>
+              <Square className="h-3.5 w-3.5" />
+              Termina
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      <div className="min-w-0 space-y-6">
-        <section className="rounded-[34px] border border-ocean/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(240,247,255,0.9))] p-6 shadow-soft">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <h2 className="mt-2 text-3xl font-semibold text-ink">Live</h2>
-              <LiveStatusPill status={streamStatus.status} startedAt={liveStream?.liveStartedAt} />
+      {/* ── Main grid: Video | Question control ── */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        {/* Video preview */}
+        <div className="aspect-video overflow-hidden rounded-xl border border-border bg-zinc-950">
+          {streamPreviewUrl ? (
+            <iframe src={streamPreviewUrl} className="h-full w-full" allow="fullscreen; autoplay" />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-zinc-600">
+              <MonitorPlay className="h-8 w-8" />
+              <p className="text-sm">Nessun embed configurato</p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Question control panel ── */}
+        <div className="flex flex-col gap-3">
+
+          {/* Active question */}
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <Radio className="h-3.5 w-3.5 text-muted" />
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">In onda</p>
+              </div>
+              {deskActiveQuestion ? <Badge variant="live">Live</Badge> : null}
             </div>
 
-            <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
-              <div className="overflow-hidden rounded-[30px] border border-ocean/10 bg-ink shadow-soft">
-                <div className="aspect-[16/9] w-full">
-                  {streamPreviewUrl ? (
-                    <iframe src={streamPreviewUrl} className="h-full w-full" allow="fullscreen; autoplay" />
-                  ) : (
-                    <div className="flex h-full flex-col justify-between bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_40%),linear-gradient(180deg,#10243a,#08121f)] p-8 text-white">
-                      <div className="flex items-center gap-3 text-sm uppercase tracking-[0.18em] text-white/70">
-                        <MonitorPlay className="h-4 w-4" />
-                        Anteprima non disponibile
-                      </div>
-                      <div>
-                        <p className="max-w-lg text-white/75">Apri o crea una stream nella sezione storica qui sotto per vedere l’anteprima.</p>
-                      </div>
+            {deskActiveQuestion ? (
+              <>
+                <p className="mb-1 text-sm font-semibold text-foreground leading-snug">{deskActiveQuestion.text}</p>
+                <p className="mb-3 text-xs text-muted">
+                  {INPUT_TYPE_LABELS[deskActiveQuestion.inputType] ?? deskActiveQuestion.inputType}
+                  {" · "}{deskActiveQuestion.audienceType === "CLASS" ? "Classe" : "Individuale"}
+                </p>
+
+                {/* Timer */}
+                {timerRemaining !== null && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-semibold tabular-nums ${
+                      timerRemaining > 30 ? "bg-success-subtle text-success-foreground"
+                      : timerRemaining > 10 ? "bg-warning-subtle text-warning-foreground"
+                      : "bg-destructive-subtle text-destructive-foreground"
+                    }`}>
+                      <Clock className="h-3.5 w-3.5" />
+                      {formatTimerRemaining(timerRemaining)}
                     </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex min-h-full flex-col justify-end gap-4 rounded-[30px] border border-ocean/10 bg-white/82 p-5 shadow-soft">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.18em] text-ocean/70">
-                    {liveStream ? "Live attiva" : scheduledStream ? "Stream pronta" : "Sala pronta"}
-                  </p>
-                  <h3 className="mt-2 text-3xl font-semibold text-ink">{streamDisplayTitle}</h3>
-                </div>
-
-                <div className="rounded-[24px] border border-ocean/10 bg-ocean/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ocean/65">Link embed</p>
-                  {streamPreviewUrl ? (
-                    <a
-                      href={streamPreviewUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 block break-all text-sm font-medium text-ocean underline-offset-4 hover:underline"
+                    <button
+                      type="button"
+                      onClick={() => extendTimer(30)}
+                      className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
                     >
-                      {streamPreviewUrl}
-                    </a>
-                  ) : (
-                    <p className="mt-2 text-sm text-ink/55">Nessun link disponibile.</p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  {streamEditorId ? (
-                    <Button variant="secondary" asChild>
-                      <Link href={`/admin/streams/${streamEditorId}`}>Modifica live</Link>
-                    </Button>
-                  ) : null}
-                  {liveStream ? (
-                    <Button variant="danger" onClick={handleEndLive}>
-                      Termina live
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-        </section>
-
-          <section className="rounded-[34px] border border-ocean/10 bg-white/82 p-6 shadow-soft">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <h2 className="mt-2 text-3xl font-semibold text-ink">Regia domande</h2>
-              {error ? (
-                <div className="inline-flex items-center gap-2 rounded-full bg-terracotta/10 px-4 py-2 text-sm font-semibold text-terracotta">
-                  <TriangleAlert className="h-4 w-4" />
-                  {error}
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_0.9fr_1.2fr]">
-              <div className="rounded-[28px] border border-ocean/10 bg-white/75 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-semibold text-ink">Domanda attiva</h3>
-                  {deskActiveQuestion ? <span className="rounded-full bg-gold/20 px-3 py-1 text-xs font-semibold text-ocean">Live</span> : null}
-                </div>
-                <p className="mt-4 text-lg font-semibold text-ink">{deskActiveQuestion?.text ?? "Nessuna domanda in onda."}</p>
-                <p className="mt-2 text-sm text-ink/60">
-                  {deskActiveQuestion
-                    ? `${deskActiveQuestion.inputType} · ${deskActiveQuestion.audienceType}`
-                    : activeQuestion && isQuestionExpired(activeQuestion)
-                      ? "Il timer della domanda e finito."
-                      : "Quando mandi una domanda live la vedi qui."}
-                </p>
-                {deskActiveQuestion ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={() => setSelectedQuestionId(deskActiveQuestion.id)}>
-                      Apri risposte
-                    </Button>
-                    <Button variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/close`)}>
-                      Chiudi
-                    </Button>
+                      +30s
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => extendTimer(60)}
+                      className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
+                    >
+                      +60s
+                    </button>
                   </div>
-                ) : null}
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setSelectedQuestionId(deskActiveQuestion.id)}>
+                    Risposte
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/results`)}>
+                    Mostra risultati
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/close`)}>
+                    Chiudi
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted">
+                {activeQuestion && isQuestionExpired(activeQuestion) ? "Timer scaduto." : "Nessuna domanda in onda."}
+              </p>
+            )}
+          </div>
+
+          {/* Next question */}
+          {nextQuestion ? (
+            <div className="rounded-xl border border-border bg-surface p-4">
+              <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted">
+                Prossima{scheduledQuestions.length > 1 ? ` (+${scheduledQuestions.length - 1} in coda)` : ""}
+              </p>
+              <p className="mb-1 text-sm font-medium text-foreground leading-snug">{nextQuestion.text}</p>
+              <p className="mb-3 text-xs text-muted">{INPUT_TYPE_LABELS[nextQuestion.inputType] ?? nextQuestion.inputType}</p>
+              <Button size="sm" onClick={() => runAction(`/api/admin/questions/${nextQuestion.id}/live`)}>
+                <Play className="h-3.5 w-3.5" />
+                Manda live
+              </Button>
+            </div>
+          ) : null}
+
+          {/* Quick-send form */}
+          <div className="flex-1 rounded-xl border border-border bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Al volo</p>
+              {!liveStream ? <Badge variant="secondary">Richiede live</Badge> : null}
+            </div>
+            <div className="space-y-2">
+              {/* Text input with icon */}
+              <div className="relative">
+                <FileText className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                <Input
+                  value={questionDraft.text}
+                  onChange={(e) => setQuestionDraft((d) => ({ ...d, text: e.target.value }))}
+                  placeholder="Testo domanda..."
+                  disabled={!liveStream}
+                  className="pl-8"
+                />
               </div>
 
-              <div className="rounded-[28px] border border-ocean/10 bg-white/75 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-semibold text-ink">Prossima domanda</h3>
-                  {scheduledQuestions.length ? (
-                    <span className="rounded-full bg-ocean/10 px-3 py-1 text-xs font-semibold text-ocean">
-                      {scheduledQuestions.length}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-4 text-lg font-semibold text-ink">{nextQuestion?.text ?? "Nessuna domanda pronta."}</p>
-                <p className="mt-2 text-sm text-ink/60">
-                  {nextQuestion
-                    ? `${nextQuestion.inputType} · ${nextQuestion.audienceType}`
-                    : "Aggiungi o prepara una domanda nella live per vederla qui."}
-                </p>
-                {nextQuestion ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button onClick={() => runAction(`/api/admin/questions/${nextQuestion.id}/live`)}>Vai live</Button>
-                    <Button variant="secondary" onClick={() => setSelectedQuestionId(nextQuestion.id)}>
-                      Apri dettaglio
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="rounded-[28px] border border-ocean/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(242,248,255,0.92))] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="text-lg font-semibold text-ink">Aggiungi una domanda al momento</h3>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-ink/50">
-                    {liveStream ? "Live disponibile" : "Solo con live attiva"}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <input
-                    value={questionDraft.text}
-                    onChange={(event) => setQuestionDraft((current) => ({ ...current, text: event.target.value }))}
-                    placeholder="Testo domanda"
-                    className="h-12 w-full rounded-2xl border border-ocean/10 px-4"
+              <div className="grid grid-cols-2 gap-2">
+                {/* Type with icon */}
+                <div className="relative">
+                  <List className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                  <Select
+                    value={questionDraft.inputType}
+                    onChange={(e) => setQuestionDraft((d) => ({ ...d, inputType: e.target.value }))}
                     disabled={!liveStream}
+                    className="pl-8"
+                  >
+                    <option value="OPEN">Aperta</option>
+                    <option value="WORD_COUNT">Word cloud</option>
+                    <option value="SCALE">Scala</option>
+                    <option value="SINGLE_CHOICE">Singola</option>
+                    <option value="MULTIPLE_CHOICE">Multipla</option>
+                  </Select>
+                </div>
+                {/* Audience with icon */}
+                <div className="relative">
+                  <Users className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                  <Select
+                    value={questionDraft.audienceType}
+                    onChange={(e) => setQuestionDraft((d) => ({ ...d, audienceType: e.target.value }))}
+                    disabled={!liveStream}
+                    className="pl-8"
+                  >
+                    <option value="CLASS">Classe</option>
+                    <option value="INDIVIDUAL">Individuale</option>
+                  </Select>
+                </div>
+              </div>
+
+              {questionDraft.inputType === "SCALE" && (
+                <div className="grid grid-cols-3 gap-2">
+                  <Input type="number" value={questionDraft.settings.min} onChange={(e) => setQuestionDraft((d) => ({ ...d, settings: { ...d.settings, min: +e.target.value } }))} placeholder="Min" disabled={!liveStream} />
+                  <Input type="number" value={questionDraft.settings.max} onChange={(e) => setQuestionDraft((d) => ({ ...d, settings: { ...d.settings, max: +e.target.value } }))} placeholder="Max" disabled={!liveStream} />
+                  <Input type="number" value={questionDraft.settings.step} onChange={(e) => setQuestionDraft((d) => ({ ...d, settings: { ...d.settings, step: +e.target.value } }))} placeholder="Step" disabled={!liveStream} />
+                </div>
+              )}
+              {questionDraft.inputType === "WORD_COUNT" && (
+                <Input type="number" value={questionDraft.settings.maxWords} onChange={(e) => setQuestionDraft((d) => ({ ...d, settings: { ...d.settings, maxWords: +e.target.value } }))} placeholder="Parole max" disabled={!liveStream} />
+              )}
+              {["SINGLE_CHOICE", "MULTIPLE_CHOICE"].includes(questionDraft.inputType) && (
+                <Textarea value={questionDraft.options} onChange={(e) => setQuestionDraft((d) => ({ ...d, options: e.target.value }))} placeholder="Una opzione per riga" rows={3} disabled={!liveStream} />
+              )}
+
+              <div className="flex items-center gap-2">
+                {/* Timer with icon */}
+                <div className="relative w-20 shrink-0">
+                  <Clock className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                  <Input
+                    type="number"
+                    value={questionDraft.timerSeconds}
+                    onChange={(e) => setQuestionDraft((d) => ({ ...d, timerSeconds: +e.target.value }))}
+                    disabled={!liveStream}
+                    className="pl-7"
+                    title="Timer in secondi"
                   />
-                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_140px]">
-                    <select
-                      value={questionDraft.inputType}
-                      onChange={(event) => setQuestionDraft((current) => ({ ...current, inputType: event.target.value }))}
-                      className="h-12 rounded-2xl border border-ocean/10 px-3"
-                      disabled={!liveStream}
-                    >
-                      <option value="OPEN">Aperta</option>
-                      <option value="WORD_COUNT">Word cloud</option>
-                      <option value="SCALE">Scala</option>
-                      <option value="SINGLE_CHOICE">Scelta singola</option>
-                      <option value="MULTIPLE_CHOICE">Scelta multipla</option>
-                    </select>
-                    <select
-                      value={questionDraft.audienceType}
-                      onChange={(event) => setQuestionDraft((current) => ({ ...current, audienceType: event.target.value }))}
-                      className="h-12 rounded-2xl border border-ocean/10 px-3"
-                      disabled={!liveStream}
-                    >
-                      <option value="CLASS">Classe</option>
-                      <option value="INDIVIDUAL">Individuale</option>
-                    </select>
-                    <input
-                      type="number"
-                      value={questionDraft.timerSeconds}
-                      onChange={(event) =>
-                        setQuestionDraft((current) => ({ ...current, timerSeconds: Number(event.target.value) }))
-                      }
-                      className="h-12 rounded-2xl border border-ocean/10 px-3"
-                      placeholder="Timer"
-                      disabled={!liveStream}
-                    />
-                  </div>
-                  {questionDraft.inputType === "SCALE" ? (
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <input
-                        type="number"
-                        value={questionDraft.settings.min}
-                        onChange={(event) =>
-                          setQuestionDraft((current) => ({
-                            ...current,
-                            settings: { ...current.settings, min: Number(event.target.value) },
-                          }))
-                        }
-                        className="h-12 rounded-2xl border border-ocean/10 px-3"
-                        placeholder="Min"
-                        disabled={!liveStream}
-                      />
-                      <input
-                        type="number"
-                        value={questionDraft.settings.max}
-                        onChange={(event) =>
-                          setQuestionDraft((current) => ({
-                            ...current,
-                            settings: { ...current.settings, max: Number(event.target.value) },
-                          }))
-                        }
-                        className="h-12 rounded-2xl border border-ocean/10 px-3"
-                        placeholder="Max"
-                        disabled={!liveStream}
-                      />
-                      <input
-                        type="number"
-                        value={questionDraft.settings.step}
-                        onChange={(event) =>
-                          setQuestionDraft((current) => ({
-                            ...current,
-                            settings: { ...current.settings, step: Number(event.target.value) },
-                          }))
-                        }
-                        className="h-12 rounded-2xl border border-ocean/10 px-3"
-                        placeholder="Step"
-                        disabled={!liveStream}
-                      />
-                    </div>
-                  ) : null}
-                  {questionDraft.inputType === "WORD_COUNT" ? (
-                    <input
-                      type="number"
-                      value={questionDraft.settings.maxWords}
-                      onChange={(event) =>
-                        setQuestionDraft((current) => ({
-                          ...current,
-                          settings: { ...current.settings, maxWords: Number(event.target.value) },
-                        }))
-                      }
-                      className="h-12 w-full rounded-2xl border border-ocean/10 px-3"
-                      placeholder="Numero massimo di parole"
-                      disabled={!liveStream}
-                    />
-                  ) : null}
-                  {["SINGLE_CHOICE", "MULTIPLE_CHOICE"].includes(questionDraft.inputType) ? (
-                    <textarea
-                      value={questionDraft.options}
-                      onChange={(event) => setQuestionDraft((current) => ({ ...current, options: event.target.value }))}
-                      className="min-h-24 w-full rounded-2xl border border-ocean/10 px-4 py-3"
-                      placeholder="Una opzione per riga"
-                      disabled={!liveStream}
-                    />
-                  ) : null}
-                  <div className="flex justify-end">
-                    <Button onClick={handleCreateLiveQuestion} disabled={!liveStream || isPending}>
-                      Invia live
-                    </Button>
-                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleCreateLiveQuestion}
+                  disabled={!liveStream || isPending || !questionDraft.text.trim()}
+                  title="Invia live"
+                  className="flex h-9 flex-1 items-center justify-center rounded-lg bg-accent text-accent-foreground transition-all hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <SendHorizontal className="h-4 w-4" />
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
 
-            <div className="mt-5 rounded-[28px] border border-ocean/10 bg-white/75 p-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
-                <div className="min-h-0">
-                  <h3 className="text-lg font-semibold text-ink">Ultime domande</h3>
-                  <div className="mt-4 max-h-[280px] space-y-2 overflow-y-auto overscroll-contain pr-2 md:max-h-[420px]">
-                    {archivedQuestions.length ? (
-                      archivedQuestions.map((question) => (
-                        <button
-                          key={question.id}
-                          type="button"
-                          onClick={() =>
-                            startTransition(() => {
-                              setSelectedQuestionId(question.id);
-                            })
-                          }
-                          className={`flex w-full flex-col rounded-2xl border px-4 py-3 text-left transition-colors ${
-                            selectedQuestionId === question.id ? "border-ocean/30 bg-ocean/5" : "border-ocean/10 bg-white hover:border-ocean/20 hover:bg-ocean/5"
-                          }`}
-                        >
-                          <span className="line-clamp-2 font-semibold text-ink">{question.text}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-sm text-ink/60">Nessuna domanda archiviata.</p>
-                    )}
-                  </div>
-                </div>
+      {/* ── Question archive + results ── */}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        {/* Collapsible header */}
+        <button
+          type="button"
+          onClick={() => setArchiveOpen((v) => !v)}
+          className="flex w-full items-center justify-between border-b border-border px-4 py-3 transition-colors hover:bg-surface-raised"
+        >
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Archivio domande</h2>
+            <span className="text-xs text-muted">({archivedQuestions.length})</span>
+          </div>
+          {archiveOpen ? <ChevronUp className="h-4 w-4 text-muted" /> : <ChevronDown className="h-4 w-4 text-muted" />}
+        </button>
 
-                <div className="min-h-[220px]">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="text-lg font-semibold text-ink">Risposte associate</h3>
-                    {selectedQuestion ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            updateEmbed({
-                              kind: "question",
-                              questionId: selectedQuestion.id,
-                              selectedAnswerIds:
-                                selectedResults?.type === "OPEN" || selectedResults?.type === "WORD_COUNT"
-                                  ? embedSelectionIds
-                                  : undefined,
-                              featuredAnswerId: selectedResults?.type === "OPEN" ? featuredEmbedAnswerId : null,
-                            })
-                          }
-                        >
-                          Mostra su embed
-                        </Button>
-                        <Button variant="ghost" onClick={() => updateEmbed({ kind: "none" })}>
-                          Svuota embed
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                  {selectedQuestion ? <p className="mt-3 line-clamp-2 text-sm font-semibold text-ink">{selectedQuestion.text}</p> : null}
-                  <div className="mt-4 space-y-2">
-                    {selectedResultsLoading ? (
-                      <div className="space-y-2">
-                        {Array.from({ length: 4 }).map((_, index) => (
-                          <div key={index} className="h-14 animate-pulse rounded-2xl border border-ocean/10 bg-ocean/5" />
-                        ))}
-                      </div>
-                    ) : !selectedResults ? (
-                      <p className="text-sm text-ink/60">Seleziona una domanda per vedere le risposte.</p>
-                    ) : selectedResults.latestSubmissions?.length ? (
-                      selectedResults.latestSubmissions.slice(0, 12).map((entry) => (
-                        <div key={entry.id} className="rounded-2xl border border-ocean/10 bg-white px-3 py-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-ink">{entry.value || "-"}</p>
-                              <p className="text-xs text-ink/50">{entry.classLabel ?? "Classe non indicata"}</p>
-                            </div>
-                            {selectedResults.type === "OPEN" || selectedResults.type === "WORD_COUNT" ? (
-                              <div className="flex items-center gap-3">
-                                <label className="flex items-center gap-2 text-xs text-ink/55">
-                                  <input
-                                    type="checkbox"
-                                    checked={embedSelectionIds.includes(entry.id)}
-                                    onChange={(event) =>
-                                      setEmbedSelectionIds((current) =>
-                                        event.target.checked ? [...current, entry.id] : current.filter((id) => id !== entry.id),
-                                      )
-                                    }
-                                  />
-                                  Embed
-                                </label>
-                                {selectedResults.type === "OPEN" ? (
-                                  <label className="flex items-center gap-2 text-xs text-ink/55">
-                                    <input
-                                      type="radio"
-                                      name="featured-open-answer"
-                                      checked={featuredEmbedAnswerId === entry.id}
-                                      onChange={() => setFeaturedEmbedAnswerId(entry.id)}
-                                    />
-                                    In grande
-                                  </label>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      selectedResults.entries.map((entry) => (
-                        <div key={entry.label} className="flex items-center justify-between rounded-2xl border border-ocean/10 bg-white px-3 py-2">
-                          <span className="text-sm text-ink">{entry.label}</span>
-                          <span className="text-sm font-semibold text-ocean">{entry.value}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+        {archiveOpen && (
+          <>
+            {/* ── Embed status strip ── */}
+            <div className="flex items-center gap-3 border-b border-border bg-surface-raised px-4 py-2">
+              <MonitorPlay className="h-4 w-4 shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                {embedQuestionText ? (
+                  <p className="truncate text-xs text-foreground">
+                    <span className="text-muted">Embed attivo: </span>{embedQuestionText}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted">Embed vuoto</p>
+                )}
               </div>
-            </div>
-          </section>
-
-          <section id="streams" className="rounded-[34px] border border-ocean/10 bg-white/82 p-6 shadow-soft">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <h2 className="text-3xl font-semibold text-ink">Ultime live passate</h2>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" asChild>
-                  <Link href="/admin/streams">Apri tabella completa</Link>
-                </Button>
-                <Button asChild>
-                  <Link href="/admin/streams/new">Nuova stream</Link>
-                </Button>
-              </div>
+              {embedQuestionId && (
+                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    checked={embedAutoSync}
+                    onChange={(e) => setEmbedAutoSync(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  <RefreshCw className="h-3 w-3" />
+                  Auto-sync
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={clearEmbed}
+                title="Svuota embed"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-destructive-subtle hover:text-destructive-foreground"
+              >
+                <MonitorX className="h-3.5 w-3.5" />
+              </button>
             </div>
 
-            <div className="mt-5 overflow-x-auto rounded-[28px] border border-ocean/10">
-              <div className="min-w-[760px]">
-                <div className="grid grid-cols-[minmax(0,1.4fr)_180px_120px_120px] gap-4 bg-ocean/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-ocean/70">
-                  <span>Titolo</span>
-                  <span>Data</span>
-                  <span>Domande</span>
-                  <span>Azioni</span>
-                </div>
-                {recentPastStreams.length ? (
-                  recentPastStreams.map((stream) => (
-                    <div
-                      key={stream.id}
-                      className="grid grid-cols-[minmax(0,1.4fr)_180px_120px_120px] gap-4 border-t border-ocean/10 bg-white px-4 py-4"
+            <div className="grid divide-y divide-border md:grid-cols-[240px_1fr] md:divide-x md:divide-y-0">
+              {/* Question list */}
+              <div className="max-h-[360px] overflow-y-auto">
+                {archivedQuestions.length ? (
+                  archivedQuestions.map((q) => (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => startTransition(() => setSelectedQuestionId(q.id))}
+                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-raised ${
+                        selectedQuestionId === q.id ? "bg-accent-subtle" : ""
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-ink">{stream.title}</p>
-                        <p className="mt-1 truncate text-sm text-ink/55">{stream.embedUrl}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className={`line-clamp-2 text-sm ${selectedQuestionId === q.id ? "font-medium text-accent" : "text-foreground"}`}>
+                          {q.text}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted">
+                          {INPUT_TYPE_LABELS[q.inputType] ?? q.inputType}
+                          {embedQuestionId === q.id && (
+                            <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
+                              <MonitorPlay className="h-2.5 w-2.5" /> embed
+                            </span>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-sm text-ink/65">{stream.scheduledAt ? formatDateTime(stream.scheduledAt) : "Conclusa"}</p>
-                      <p className="text-sm font-semibold text-ink">{stream.questionsCount}</p>
-                      <div>
-                        <Button variant="secondary" asChild>
-                          <Link href={`/admin/streams/${stream.id}`}>Apri</Link>
-                        </Button>
-                      </div>
-                    </div>
+                      <Badge
+                        variant={q.status === "LIVE" ? "live" : q.status === "RESULTS" ? "default" : "secondary"}
+                        className="mt-0.5 shrink-0"
+                      >
+                        {q.status === "LIVE" ? "Live" : q.status === "RESULTS" ? "Risultati" : q.status === "CLOSED" ? "Chiusa" : q.status}
+                      </Badge>
+                    </button>
                   ))
                 ) : (
-                  <div className="bg-white px-4 py-8 text-sm text-ink/60">Nessuna live passata disponibile.</div>
+                  <p className="p-4 text-sm text-muted">Nessuna domanda archiviata.</p>
+                )}
+              </div>
+
+              {/* Results panel */}
+              <div className="p-4">
+                {selectedQuestion && (
+                  <div className="mb-4 flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted">
+                      {INPUT_TYPE_LABELS[selectedQuestion.inputType] ?? selectedQuestion.inputType}
+                      {" · "}{selectedResults?.totalAnswers ?? 0} risposte
+                    </p>
+                    <div className="flex shrink-0 gap-1.5">
+                      <Button
+                        size="sm"
+                        variant={embedQuestionId === selectedQuestion.id ? "secondary" : "default"}
+                        onClick={sendToEmbed}
+                      >
+                        <MonitorPlay className="h-3.5 w-3.5" />
+                        {embedQuestionId === selectedQuestion.id ? "Aggiorna embed" : "Manda a embed"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {selectedResultsLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-9 animate-pulse rounded-lg bg-surface-raised" />
+                    ))}
+                  </div>
+                ) : !selectedQuestion ? (
+                  <p className="text-sm text-muted">Seleziona una domanda dall&apos;archivio.</p>
+                ) : !selectedResults ? (
+                  <p className="text-sm text-muted">Nessun risultato da mostrare.</p>
+                ) : (
+                  <div className="max-h-[320px] overflow-y-auto">
+                    <ResultsBody
+                      results={selectedResults}
+                      embedSelectionIds={embedSelectionIds}
+                      featuredEmbedAnswerId={featuredEmbedAnswerId}
+                      onEmbedSelectionChange={setEmbedSelectionIds}
+                      onFeaturedChange={setFeaturedEmbedAnswerId}
+                    />
+                  </div>
                 )}
               </div>
             </div>
-          </section>
+          </>
+        )}
       </div>
 
-      <div
-        className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-full max-w-sm flex-col gap-3 xl:right-[calc(var(--admin-sidebar-width)+1.5rem)]"
-      >
-        {notifications.map((notification) => (
-          <div
-            key={notification.id}
-            className={`pointer-events-auto rounded-[24px] border px-4 py-3 shadow-2xl backdrop-blur ${getNotificationToneClasses(notification.tone)}`}
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 rounded-full bg-ocean/10 p-2 text-ocean">
-                <Bell className="h-4 w-4" />
+      {/* ── Recent streams ── */}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground">Stream recenti</h2>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" asChild><Link href="/admin/streams">Vedi tutte</Link></Button>
+            <Button size="sm" asChild><Link href="/admin/streams/new">Nuova</Link></Button>
+          </div>
+        </div>
+        {streams.past.slice(0, 4).length ? (
+          <div className="divide-y divide-border">
+            {streams.past.slice(0, 4).map((stream) => (
+              <div key={stream.id} className="flex items-center gap-4 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{stream.title}</p>
+                  <p className="text-xs text-muted">
+                    {stream.scheduledAt ? formatDateTime(stream.scheduledAt) : "—"} · {stream.questionsCount} domande
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href={`/admin/streams/${stream.id}`}>Apri</Link>
+                </Button>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-ink">{notification.title}</p>
-                {notification.description ? <p className="mt-1 text-sm text-ink/65">{notification.description}</p> : null}
-              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="p-4 text-sm text-muted">Nessuna live passata.</p>
+        )}
+      </div>
+
+      {/* ── Notifications ── */}
+      <div className="fixed bottom-5 right-5 z-50 flex w-80 flex-col gap-2">
+        {notifications.map((n) => (
+          <div key={n.id} className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3 shadow-lg animate-slide-up">
+            <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+              n.tone === "success" ? "bg-success-subtle text-success-foreground"
+              : n.tone === "warning" ? "bg-warning-subtle text-warning-foreground"
+              : "bg-accent-subtle text-accent"
+            }`}>
+              <Bell className="h-2.5 w-2.5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">{n.title}</p>
+              {n.description ? <p className="mt-0.5 truncate text-xs text-muted">{n.description}</p> : null}
             </div>
           </div>
         ))}

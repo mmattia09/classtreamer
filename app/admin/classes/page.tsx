@@ -16,28 +16,24 @@ export default async function ClassesPage() {
     redirect("/admin");
   }
 
-  const classes = await prisma.class.findMany({
-    orderBy: [{ year: "asc" }, { section: "asc" }],
-  });
-  const settings = await getAppSettings();
+  const [classes, settings] = await Promise.all([
+    prisma.class.findMany({ orderBy: [{ year: "asc" }, { section: "asc" }] }),
+    getAppSettings(),
+  ]);
   const appConfig = buildAppConfig(settings);
   const classesInput = serializeClassesInput(classes);
 
   return (
     <AdminShell appName={appConfig.name} appIcon={appConfig.icon} active="settings">
       <div className="mb-6">
-        <p className="text-sm uppercase tracking-[0.2em] text-ocean/70">Impostazioni</p>
-        <h1 className="text-3xl font-semibold text-ink">Configurazione applicazione</h1>
-        <p className="text-ink/60">Branding, colori e classi abilitate.</p>
+        <h1 className="text-xl font-semibold text-foreground">Impostazioni</h1>
+        <p className="mt-0.5 text-sm text-muted">Branding e classi abilitate.</p>
       </div>
-      <Card className="space-y-4 shadow-none">
+      <Card className="overflow-hidden p-0">
         <AdminSettingsForm
           initialClasses={classesInput}
           initialAppName={settings.appName}
           initialAppIcon={settings.appIcon}
-          initialAppBgColor={settings.appBgColor}
-          initialAppMainColor={settings.appMainColor}
-          initialAppLightColor={settings.appLightColor}
         />
       </Card>
     </AdminShell>

@@ -47,15 +47,15 @@ model Class {
 }
 
 model Stream {
-  id            String        @id @default(cuid())
-  title         String
-  embedUrl      String
-  scheduledAt   DateTime?
-  status        StreamStatus  @default(DRAFT)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  targetClasses StreamClass[]
-  questions     Question[]
+  id              String           @id @default(cuid())
+  title           String
+  embedUrl        String
+  scheduledAt     DateTime?
+  status          StreamStatus     @default(DRAFT)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  targetClasses   StreamClass[]
+  questions       Question[]
   viewerQuestions ViewerQuestion[]
 }
 
@@ -85,6 +85,9 @@ model Question {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   answers        Answer[]
+
+  @@index([streamId])
+  @@index([status])
 }
 
 model Answer {
@@ -95,17 +98,17 @@ model Answer {
   classSection String?
   value        Json
   createdAt    DateTime @default(now())
+
+  @@index([questionId])
+  @@index([questionId, classYear, classSection])
 }
 
 model AppSetting {
-  id             String   @id
-  appName        String?
-  appIcon        String?
-  appBgColor     String?
-  appMainColor   String?
-  appLightColor  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id        String   @id
+  appName   String?
+  appIcon   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ViewerQuestion {

@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/nextjs,macos,redis
 # Edit at https://www.toptal.com/developers/gitignore?templates=nextjs,macos,redis
 
+### Claude Code ###
+.claude/
+
 ### macOS ###
 # General
 .DS_Store

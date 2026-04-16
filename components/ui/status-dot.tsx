@@ -1,14 +1,25 @@
-"use client";
-
 import { cn } from "@/lib/utils";
 
-export function StatusDot({ connected }: { connected: boolean }) {
+export function StatusDot({
+  connected,
+  className,
+}: {
+  connected: boolean;
+  className?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-ink">
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-foreground shadow-xs",
+        className,
+      )}
+    >
       <span
         className={cn(
-          "h-2.5 w-2.5 rounded-full transition-colors",
-          connected ? "bg-sage shadow-[0_0_12px_rgba(135,168,120,0.9)]" : "bg-terracotta",
+          "h-2 w-2 rounded-full transition-colors",
+          connected
+            ? "bg-success shadow-[0_0_8px_rgb(34_197_94/0.6)]"
+            : "bg-destructive animate-pulse",
         )}
       />
       {connected ? "Connesso" : "Riconnessione..."}
