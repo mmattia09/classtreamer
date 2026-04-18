@@ -2,14 +2,17 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { DuplicateStreamButton } from "@/components/admin/duplicate-stream-button";
 import { StreamControls } from "@/components/admin/stream-controls";
 import { StreamEditor } from "@/components/admin/stream-editor";
+import { StreamHistory, type QuestionHistoryEntry } from "@/components/admin/stream-history";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { buildAppConfig } from "@/lib/app-config";
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getResultsForQuestion } from "@/lib/questions";
 import { getAppSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +27,18 @@ const QUESTION_STATUS_VARIANTS: Record<string, "live" | "default" | "secondary">
 const QUESTION_STATUS_LABELS: Record<string, string> = {
   LIVE: "In corso",
   RESULTS: "Risultati",
-  DRAFT: "Bozza",
   CLOSED: "Chiusa",
+};
+const INPUT_TYPE_LABELS: Record<string, string> = {
+  OPEN: "Aperta",
+  WORD_COUNT: "Word cloud",
+  SCALE: "Scala",
+  SINGLE_CHOICE: "Scelta singola",
+  MULTIPLE_CHOICE: "Scelta multipla",
+};
+const AUDIENCE_TYPE_LABELS: Record<string, string> = {
+  CLASS: "Classe",
+  INDIVIDUAL: "Individuale",
 };
 
 const STREAM_STATUS_VARIANTS: Record<string, "live" | "warning" | "secondary"> = {
@@ -59,6 +72,33 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
 
   const appConfig = buildAppConfig(settings);
 
+  // For LIVE/ENDED: fetch question results
+  const historyQuestions: QuestionHistoryEntry[] = [];
+  if (stream.status === "LIVE" || stream.status === "ENDED") {
+    const historyQs = stream.questions.filter((q) =>
+      stream.status === "ENDED"
+        ? true // ENDED: all questions
+        : q.status !== "DRAFT", // LIVE: only non-DRAFT
+    );
+    for (const q of historyQs) {
+      const results = await getResultsForQuestion(q.id);
+      historyQuestions.push({
+        id: q.id,
+        text: q.text,
+        inputType: q.inputType,
+        audienceType: q.audienceType,
+        status: q.status,
+        order: q.order,
+        results,
+      });
+    }
+  }
+
+  // Questions for the control panel (LIVE stream only): DRAFT, LIVE, RESULTS (not CLOSED)
+  const controlQuestions = stream.status === "LIVE"
+    ? stream.questions.filter((q) => q.status !== "CLOSED")
+    : [];
+
   return (
     <AdminShell appName={appConfig.name} appIcon={appConfig.icon} active="streams">
       {/* Page header */}
@@ -74,24 +114,32 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
                 {STREAM_STATUS_LABELS[stream.status] ?? stream.status}
               </Badge>
             </div>
-            <p className="mt-0.5 text-sm text-muted">Modifica la live e gestisci le domande preparate.</p>
+            <p className="mt-0.5 text-sm text-muted">
+              {stream.status === "ENDED"
+                ? "Stream conclusa. Visualizza lo storico delle risposte."
+                : "Modifica la live e gestisci le domande preparate."}
+            </p>
           </div>
-          {stream.status !== "ENDED" && (
-            <div className="shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
+            {stream.status === "ENDED" && (
+              <DuplicateStreamButton streamId={stream.id} />
+            )}
+            {stream.status !== "ENDED" && (
               <StreamControls streamId={stream.id} status={stream.status} />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
       <div className="space-y-4">
+        {/* Stream editor (questions hidden for ENDED via internal condition) */}
         <StreamEditor
           classes={classes}
           stream={{
             id: stream.id,
             title: stream.title,
             embedUrl: stream.embedUrl,
-            scheduledAt: stream.scheduledAt ? stream.scheduledAt.toISOString().slice(0, 16) : "",
+            scheduledAt: stream.scheduledAt ? stream.scheduledAt.toISOString() : "",
             status: stream.status,
             targetClassIds: stream.targetClasses.map((e) => e.classId),
             questions: stream.questions.map((q) => ({
@@ -111,36 +159,50 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
           }}
         />
 
-        {/* Question control table */}
-        {stream.questions.length > 0 && (
+        {/* Question control panel — only for LIVE streams */}
+        {stream.status === "LIVE" && controlQuestions.length > 0 && (
           <Card className="overflow-hidden p-0">
             <div className="border-b border-border px-4 py-3">
               <h2 className="text-sm font-semibold text-foreground">Controllo domande</h2>
             </div>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
-                {stream.questions.map((q, idx) => (
+                {controlQuestions.map((q, idx) => (
                   <div key={q.id} className="flex items-center gap-4 px-4 py-3">
                     <span className="w-5 shrink-0 text-xs font-medium text-muted">{idx + 1}</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">{q.text}</p>
-                      <p className="text-xs text-muted">{q.inputType} · {q.audienceType}</p>
+                      <p className="text-xs text-muted">
+                        {INPUT_TYPE_LABELS[q.inputType] ?? q.inputType}
+                        {" · "}
+                        {AUDIENCE_TYPE_LABELS[q.audienceType] ?? q.audienceType}
+                      </p>
                     </div>
-                    <Badge variant={QUESTION_STATUS_VARIANTS[q.status] ?? "secondary"}>
-                      {QUESTION_STATUS_LABELS[q.status] ?? q.status}
-                    </Badge>
+                    {q.status !== "DRAFT" && (
+                      <Badge variant={QUESTION_STATUS_VARIANTS[q.status] ?? "secondary"}>
+                        {QUESTION_STATUS_LABELS[q.status] ?? q.status}
+                      </Badge>
+                    )}
                     <div className="flex shrink-0 gap-1.5">
-                      {q.status !== "LIVE" && q.status !== "CLOSED" && (
+                      {/* DRAFT: show "Vai live" */}
+                      {q.status === "DRAFT" && (
                         <form action={`/api/admin/questions/${q.id}/live`} method="post">
-                          <Button type="submit" size="sm">Live</Button>
+                          <Button type="submit" size="sm">Vai live</Button>
                         </form>
                       )}
+                      {/* LIVE: show "Risultati" + "Chiudi" */}
                       {q.status === "LIVE" && (
-                        <form action={`/api/admin/questions/${q.id}/results`} method="post">
-                          <Button type="submit" size="sm" variant="secondary">Risultati</Button>
-                        </form>
+                        <>
+                          <form action={`/api/admin/questions/${q.id}/results`} method="post">
+                            <Button type="submit" size="sm" variant="secondary">Risultati</Button>
+                          </form>
+                          <form action={`/api/admin/questions/${q.id}/close`} method="post">
+                            <Button type="submit" size="sm" variant="ghost">Chiudi</Button>
+                          </form>
+                        </>
                       )}
-                      {(q.status === "LIVE" || q.status === "RESULTS") && (
+                      {/* RESULTS: show "Chiudi" */}
+                      {q.status === "RESULTS" && (
                         <form action={`/api/admin/questions/${q.id}/close`} method="post">
                           <Button type="submit" size="sm" variant="ghost">Chiudi</Button>
                         </form>
@@ -151,6 +213,15 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* History — for LIVE and ENDED */}
+        {(stream.status === "LIVE" || stream.status === "ENDED") && (
+          <StreamHistory
+            questions={historyQuestions}
+            streamId={stream.id}
+            showExport
+          />
         )}
       </div>
     </AdminShell>
