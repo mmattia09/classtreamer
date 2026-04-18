@@ -1,13 +1,14 @@
 "use client";
 
-import Image from "next/image";
-import { useState } from "react";
+import { Save } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { compactClassesInput, parseClassesInput, serializeClassesInput, type ClassEntry } from "@/lib/classes";
+import { compactClassesInput, type ClassEntry } from "@/lib/classes";
+import { cn } from "@/lib/utils";
 
 type Props = {
   initialClasses: string;
@@ -19,11 +20,31 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
   const [classesValue, setClassesValue] = useState(initialClasses);
   const [appName, setAppName] = useState(initialAppName);
   const [appIcon, setAppIcon] = useState(initialAppIcon);
-  const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [savePhase, setSavePhase] = useState<"idle" | "saving" | "exiting">("idle");
+  const saveExitTimerRef = useRef<number | null>(null);
+  const saving = savePhase === "saving";
+  const saveAnimatingOut = savePhase === "exiting";
+  const saveBusy = savePhase === "saving" || savePhase === "exiting";
+  const saveVisible = isDirty || saveBusy;
+
+  useEffect(() => {
+    return () => {
+      if (saveExitTimerRef.current !== null) {
+        window.clearTimeout(saveExitTimerRef.current);
+      }
+    };
+  }, []);
+
+  function markDirty() { setIsDirty(true); setNote(null); }
 
   async function saveAll() {
-    setSaving(true);
+    if (saveExitTimerRef.current !== null) {
+      window.clearTimeout(saveExitTimerRef.current);
+      saveExitTimerRef.current = null;
+    }
+    setSavePhase("saving");
     setNote(null);
     try {
       const [brandRes, classesRes] = await Promise.all([
@@ -49,16 +70,24 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
         setAppIcon(brandPayload.settings.appIcon);
       }
       if (classesPayload.ok && classesPayload.classes) {
-        // Auto-compact the classes input after saving
         setClassesValue(compactClassesInput(classesPayload.classes));
       }
 
       const allOk = brandRes.ok && classesRes.ok;
       setNote({ ok: allOk, text: allOk ? "Impostazioni salvate." : "Errore durante il salvataggio." });
+      if (allOk) {
+        setIsDirty(false);
+        setSavePhase("exiting");
+        saveExitTimerRef.current = window.setTimeout(() => {
+          setSavePhase("idle");
+          saveExitTimerRef.current = null;
+        }, 350);
+        return;
+      }
+      setSavePhase("idle");
     } catch {
       setNote({ ok: false, text: "Impossibile salvare le impostazioni." });
-    } finally {
-      setSaving(false);
+      setSavePhase("idle");
     }
   }
 
@@ -77,7 +106,7 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
             <Input
               id="appName"
               value={appName}
-              onChange={(e) => setAppName(e.target.value)}
+              onChange={(e) => { setAppName(e.target.value); markDirty(); }}
               placeholder="Classtreamer"
             />
             <p className="text-xs text-muted">Mostrato nell&apos;header e nei metadati.</p>
@@ -88,7 +117,7 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
             <Input
               id="appIcon"
               value={appIcon}
-              onChange={(e) => setAppIcon(e.target.value)}
+              onChange={(e) => { setAppIcon(e.target.value); markDirty(); }}
               placeholder="https://example.com/logo.png"
             />
             <p className="text-xs text-muted">Lascia vuoto per il logo predefinito.</p>
@@ -134,23 +163,35 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
         </div>
         <Textarea
           value={classesValue}
-          onChange={(e) => setClassesValue(e.target.value)}
+          onChange={(e) => { setClassesValue(e.target.value); markDirty(); }}
           rows={4}
           placeholder="1A-E, 2A-E, 3A-D, 3E, 4A-E, 5A-E, INSEGNANTI"
           className="font-mono text-sm"
         />
       </div>
 
-      {/* ── Save button ── */}
-      <div className="flex items-center gap-4 px-6 py-4">
-        <Button onClick={saveAll} disabled={saving}>
-          {saving ? "Salvataggio..." : "Salva impostazioni"}
+      {/* ── Floating save button — shown only when dirty ── */}
+      <div
+        className={`fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 transition-all duration-300 ease-out ${
+          saveAnimatingOut || !saveVisible ? "translate-y-16 opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
+        }`}
+      >
+        <div
+          className={cn(
+            "grid w-full max-w-xs transition-[grid-template-rows,opacity,transform] duration-250 ease-out",
+            note ? "grid-rows-[1fr] opacity-100 translate-y-0" : "grid-rows-[0fr] opacity-0 translate-y-1 pointer-events-none",
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className={`rounded-lg px-3 py-2 text-sm text-white shadow-lg ${note?.ok ? "bg-success" : "bg-destructive"}`}>
+              {note?.text ?? ""}
+            </div>
+          </div>
+        </div>
+        <Button onClick={saveAll} disabled={saveBusy} size="lg" className="gap-2 shadow-xl disabled:opacity-100">
+          <Save className="h-4 w-4" />
+          {saveBusy ? "Salvataggio…" : "Salva"}
         </Button>
-        {note ? (
-          <p className={`text-sm ${note.ok ? "text-success-foreground" : "text-destructive-foreground"}`}>
-            {note.text}
-          </p>
-        ) : null}
       </div>
     </div>
   );

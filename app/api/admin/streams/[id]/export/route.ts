@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { escapeCsv, formatAnswerValue, formatClassLabel } from "@/lib/export-utils";
 
@@ -7,6 +8,10 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!(await isAdminAuthenticated())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const stream = await prisma.stream.findUnique({
     where: { id },

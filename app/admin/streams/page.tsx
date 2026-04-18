@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronRight, MessageSquare, Plus, Radio } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -50,65 +51,58 @@ export default async function StreamsPage() {
           <p className="mt-0.5 text-sm text-muted">Tutte le live, bozze e archivio.</p>
         </div>
         <Button asChild>
-          <Link href="/admin/streams/new">Nuova stream</Link>
+          <Link href="/admin/streams/new">
+            <Plus className="h-4 w-4" />
+            Nuova stream
+          </Link>
         </Button>
       </div>
 
       <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-raised">
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">Titolo</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">Stato</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">Data</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">Domande</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted">Azioni</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {sorted.length ? (
-                sorted.map((stream) => (
-                  <tr key={stream.id} className="hover:bg-surface-raised transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-foreground">{stream.title}</p>
-                      <p className="text-xs text-muted font-mono">{stream.id}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={STATUS_VARIANTS[stream.status] ?? "secondary"}>
-                        {STATUS_LABELS[stream.status] ?? stream.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted">
-                      {stream.scheduledAt
-                        ? formatDateTime(stream.scheduledAt.toISOString())
-                        : formatDateTime(stream.createdAt.toISOString())}
-                    </td>
-                    <td className="px-4 py-3 text-muted">{stream._count.questions}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="secondary" size="sm" asChild>
-                          <Link href={`/admin/streams/${stream.id}`}>
-                            {stream.status === "ENDED" ? "Storico" : "Modifica"}
-                          </Link>
-                        </Button>
-                        <Button variant="ghost" size="sm" asChild>
-                          <a href={`/api/admin/streams/${stream.id}/export`}>CSV</a>
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-muted">
-                    Nessuna stream disponibile.
-                  </td>
-                </tr>
+        {sorted.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted">Nessuna stream disponibile.</p>
+        ) : (
+          sorted.map((stream) => (
+            <Link
+              key={stream.id}
+              href={`/admin/streams/${stream.id}`}
+              className="group flex items-center gap-3 px-4 py-3.5 hover:bg-surface-raised transition-colors border-b border-border last:border-0"
+            >
+              {/* Status indicator dot */}
+              {stream.status === "LIVE" && (
+                <Radio className="h-3.5 w-3.5 shrink-0 text-success animate-pulse" />
               )}
-            </tbody>
-          </table>
-        </div>
+
+              {/* Title */}
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-foreground group-hover:text-accent transition-colors truncate">
+                  {stream.title}
+                </p>
+              </div>
+
+              {/* Status badge */}
+              <Badge variant={STATUS_VARIANTS[stream.status] ?? "secondary"} className="shrink-0">
+                {STATUS_LABELS[stream.status] ?? stream.status}
+              </Badge>
+
+              {/* Date */}
+              <span className="hidden md:block w-36 shrink-0 text-sm text-muted tabular-nums">
+                {stream.scheduledAt
+                  ? formatDateTime(stream.scheduledAt.toISOString())
+                  : formatDateTime(stream.createdAt.toISOString())}
+              </span>
+
+              {/* Question count */}
+              <span className="hidden sm:flex w-24 shrink-0 items-center gap-1 text-sm text-muted">
+                <MessageSquare className="h-3.5 w-3.5" />
+                {stream._count.questions}
+              </span>
+
+              {/* Navigation arrow */}
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted group-hover:text-accent transition-colors" />
+            </Link>
+          ))
+        )}
       </Card>
     </AdminShell>
   );
