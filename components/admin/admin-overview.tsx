@@ -13,7 +13,6 @@ import {
   Play,
   Plus,
   Radio,
-  RefreshCw,
   SendHorizontal,
   Square,
   TriangleAlert,
@@ -25,6 +24,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScaleChart } from "@/components/results-view";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getYearLabel } from "@/lib/classes";
@@ -41,6 +41,10 @@ const INPUT_TYPE_LABELS: Record<string, string> = {
   SCALE: "Scala",
   SINGLE_CHOICE: "Singola",
   MULTIPLE_CHOICE: "Multipla",
+};
+const AUDIENCE_TYPE_LABELS: Record<string, string> = {
+  CLASS: "Classe",
+  INDIVIDUAL: "Individuale",
 };
 
 /* ─── Types ─────────────────────────────────────────────────────── */
@@ -98,6 +102,12 @@ function formatTimerRemaining(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function formatQuestionMeta(inputType: string, audienceType?: string) {
+  const inputLabel = INPUT_TYPE_LABELS[inputType] ?? inputType;
+  if (!audienceType) return inputLabel;
+  return `${inputLabel} · ${AUDIENCE_TYPE_LABELS[audienceType] ?? audienceType}`;
 }
 
 /* ─── Sub-components ────────────────────────────────────────────── */
@@ -172,14 +182,25 @@ function ResultsBody({
       }
     }
 
+    if (results.type === "SCALE") {
+      const scaleMin = results.scale?.min ?? 1;
+      const scaleMax = results.scale?.max ?? 5;
+      return (
+        <div className="space-y-3">
+          <ScaleChart
+            entries={results.entries}
+            average={mean}
+            scaleMin={scaleMin}
+            scaleMax={scaleMax}
+            dark={false}
+          />
+          <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
-        {mean !== null && (
-          <div className="flex items-center gap-2 rounded-lg bg-accent-subtle px-3 py-2">
-            <span className="text-xs text-muted">Media</span>
-            <span className="text-lg font-bold tabular-nums text-accent">{mean.toFixed(1)}</span>
-          </div>
-        )}
         <div className="space-y-2.5">
           {results.entries.map((e) => (
             <EntryBar key={e.label} label={e.label} value={e.value} total={results.totalAnswers} max={maxVal} />
@@ -269,11 +290,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
   // Embed state tracking
   const [embedQuestionId, setEmbedQuestionId] = useState<string | null>(null);
-  const [embedAutoSync, setEmbedAutoSync] = useState(false);
 
   const selectedQuestionRef = useRef(selectedQuestionId);
   const embedQuestionIdRef = useRef(embedQuestionId);
-  const embedAutoSyncRef = useRef(embedAutoSync);
+  const embedSelectionIdsRef = useRef(embedSelectionIds);
+  const featuredEmbedAnswerIdRef = useRef(featuredEmbedAnswerId);
   const notificationIdRef = useRef(0);
   const notificationTimeoutsRef = useRef<number[]>([]);
   const resultsCacheRef = useRef(
@@ -284,7 +305,8 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
   useEffect(() => { selectedQuestionRef.current = selectedQuestionId; }, [selectedQuestionId]);
   useEffect(() => { embedQuestionIdRef.current = embedQuestionId; }, [embedQuestionId]);
-  useEffect(() => { embedAutoSyncRef.current = embedAutoSync; }, [embedAutoSync]);
+  useEffect(() => { embedSelectionIdsRef.current = embedSelectionIds; }, [embedSelectionIds]);
+  useEffect(() => { featuredEmbedAnswerIdRef.current = featuredEmbedAnswerId; }, [featuredEmbedAnswerId]);
 
   useEffect(() => {
     const iv = window.setInterval(() => setTimerTick((n) => n + 1), 1000);
@@ -328,12 +350,17 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       setResults(p);
       if (selectedQuestionRef.current === p.questionId) setSelectedResults(p);
       pushNotification("Risposte aggiornate", undefined, "success");
-      // Auto-sync: push immediately to embed if enabled and this is the embedded question
-      if (embedAutoSyncRef.current && embedQuestionIdRef.current === p.questionId) {
+      // Always auto-push when embed is active for this question
+      if (embedQuestionIdRef.current === p.questionId) {
         void fetch("/api/admin/embed", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "question", questionId: p.questionId }),
+          body: JSON.stringify({
+            kind: "question",
+            questionId: p.questionId,
+            selectedAnswerIds: ["OPEN", "WORD_COUNT"].includes(p.type) ? embedSelectionIdsRef.current : undefined,
+            featuredAnswerId: p.type === "OPEN" ? featuredEmbedAnswerIdRef.current : null,
+          }),
         });
       }
     });
@@ -402,13 +429,8 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     return () => ctrl.abort();
   }, [selectedQuestionId, results, results?.questionId]);
 
+  // Default embedSelectionIds: start empty, don't pre-select
   useEffect(() => {
-    if (selectedResults?.latestSubmissions?.length && ["OPEN", "WORD_COUNT"].includes(selectedResults.type)) {
-      const ids = selectedResults.latestSubmissions.map((e) => e.id);
-      setEmbedSelectionIds(ids);
-      setFeaturedEmbedAnswerId(ids[0] ?? null);
-      return;
-    }
     setEmbedSelectionIds([]);
     setFeaturedEmbedAnswerId(null);
   }, [selectedQuestionId, selectedResults]);
@@ -422,7 +444,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const deskActiveQuestion = timerTick >= 0 && activeQuestion && !isQuestionExpired(activeQuestion) ? activeQuestion : null;
   const scheduledQuestions = currentStream?.questions.filter((q) => q.status === "DRAFT") ?? [];
   const nextQuestion = scheduledQuestions[0] ?? null;
-  const archivedQuestions = questionArchive.slice(0, 16);
+  const archivedQuestions = questionArchive.filter(q => q.status === "LIVE" || q.answerCount > 0).slice(0, 16);
   const selectedQuestion = useMemo(
     () =>
       !selectedQuestionId
@@ -438,11 +460,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     : null;
 
   // Timer remaining
-  const timerRemaining = useMemo(() => {
+  const timerRemaining = (() => {
     if (!deskActiveQuestion?.openedAt || !deskActiveQuestion?.timerSeconds) return null;
     const expiresAt = new Date(deskActiveQuestion.openedAt).getTime() + deskActiveQuestion.timerSeconds * 1000;
     return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
-  }, [deskActiveQuestion, timerTick]);
+  })();
 
   /* ── Actions ── */
   async function runAction(url: string) {
@@ -518,7 +540,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   async function clearEmbed() {
     await updateEmbed({ kind: "none" });
     setEmbedQuestionId(null);
-    setEmbedAutoSync(false);
   }
 
   /* ─── Render ─────────────────────────────────────────────────── */
@@ -608,8 +629,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
               <>
                 <p className="mb-1 text-sm font-semibold text-foreground leading-snug">{deskActiveQuestion.text}</p>
                 <p className="mb-3 text-xs text-muted">
-                  {INPUT_TYPE_LABELS[deskActiveQuestion.inputType] ?? deskActiveQuestion.inputType}
-                  {" · "}{deskActiveQuestion.audienceType === "CLASS" ? "Classe" : "Individuale"}
+                  {formatQuestionMeta(deskActiveQuestion.inputType, deskActiveQuestion.audienceType)}
                 </p>
 
                 {/* Timer */}
@@ -644,9 +664,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                   <Button size="sm" variant="secondary" onClick={() => setSelectedQuestionId(deskActiveQuestion.id)}>
                     Risposte
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/results`)}>
-                    Mostra risultati
-                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => runAction(`/api/admin/questions/${deskActiveQuestion.id}/close`)}>
                     Chiudi
                   </Button>
@@ -666,7 +683,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                 Prossima{scheduledQuestions.length > 1 ? ` (+${scheduledQuestions.length - 1} in coda)` : ""}
               </p>
               <p className="mb-1 text-sm font-medium text-foreground leading-snug">{nextQuestion.text}</p>
-              <p className="mb-3 text-xs text-muted">{INPUT_TYPE_LABELS[nextQuestion.inputType] ?? nextQuestion.inputType}</p>
+              <p className="mb-3 text-xs text-muted">{formatQuestionMeta(nextQuestion.inputType, nextQuestion.audienceType)}</p>
               <Button size="sm" onClick={() => runAction(`/api/admin/questions/${nextQuestion.id}/live`)}>
                 <Play className="h-3.5 w-3.5" />
                 Manda live
@@ -796,18 +813,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                   <p className="text-xs text-muted">Embed vuoto</p>
                 )}
               </div>
-              {embedQuestionId && (
-                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted">
-                  <input
-                    type="checkbox"
-                    checked={embedAutoSync}
-                    onChange={(e) => setEmbedAutoSync(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  <RefreshCw className="h-3 w-3" />
-                  Auto-sync
-                </label>
-              )}
               <button
                 type="button"
                 onClick={clearEmbed}
@@ -836,7 +841,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                           {q.text}
                         </p>
                         <p className="mt-0.5 text-[11px] text-muted">
-                          {INPUT_TYPE_LABELS[q.inputType] ?? q.inputType}
+                          {formatQuestionMeta(q.inputType, q.audienceType)}
                           {embedQuestionId === q.id && (
                             <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
                               <MonitorPlay className="h-2.5 w-2.5" /> embed
@@ -844,12 +849,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                           )}
                         </p>
                       </div>
-                      <Badge
-                        variant={q.status === "LIVE" ? "live" : q.status === "RESULTS" ? "default" : "secondary"}
-                        className="mt-0.5 shrink-0"
-                      >
-                        {q.status === "LIVE" ? "Live" : q.status === "RESULTS" ? "Risultati" : q.status === "CLOSED" ? "Chiusa" : q.status}
-                      </Badge>
+                      {q.status === "LIVE" && (
+                        <Badge variant="live" className="mt-0.5 shrink-0">
+                          Live
+                        </Badge>
+                      )}
                     </button>
                   ))
                 ) : (
@@ -862,17 +866,20 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                 {selectedQuestion && (
                   <div className="mb-4 flex items-center justify-between gap-2">
                     <p className="text-xs font-medium text-muted">
-                      {INPUT_TYPE_LABELS[selectedQuestion.inputType] ?? selectedQuestion.inputType}
+                      {formatQuestionMeta(selectedQuestion.inputType, selectedQuestion.audienceType)}
                       {" · "}{selectedResults?.totalAnswers ?? 0} risposte
                     </p>
-                    <div className="flex shrink-0 gap-1.5">
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {embedQuestionId === selectedQuestion.id && (
+                        <MonitorPlay className="h-3.5 w-3.5 text-accent" />
+                      )}
                       <Button
                         size="sm"
-                        variant={embedQuestionId === selectedQuestion.id ? "secondary" : "default"}
+                        variant="default"
                         onClick={sendToEmbed}
                       >
                         <MonitorPlay className="h-3.5 w-3.5" />
-                        {embedQuestionId === selectedQuestion.id ? "Aggiorna embed" : "Manda a embed"}
+                        Manda a embed
                       </Button>
                     </div>
                   </div>

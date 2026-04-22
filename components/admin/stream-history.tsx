@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { ScaleChart } from "@/components/results-view";
 import type { ResultsPayload } from "@/lib/types";
 
 const INPUT_TYPE_LABELS: Record<string, string> = {
@@ -13,12 +14,6 @@ const INPUT_TYPE_LABELS: Record<string, string> = {
 const AUDIENCE_TYPE_LABELS: Record<string, string> = {
   CLASS: "Classe",
   INDIVIDUAL: "Individuale",
-};
-const QUESTION_STATUS_LABELS: Record<string, string> = {
-  LIVE: "In corso", RESULTS: "Risultati", CLOSED: "Chiusa",
-};
-const QUESTION_STATUS_VARIANTS: Record<string, "live" | "default" | "secondary"> = {
-  LIVE: "live", RESULTS: "default", DRAFT: "secondary", CLOSED: "secondary",
 };
 
 function formatQuestionMeta(inputType: string, audienceType?: string) {
@@ -54,14 +49,26 @@ function ResultsBody({ results }: { results: ResultsPayload }) {
       if (totalWeight > 0)
         mean = results.entries.reduce((s, e) => s + Number(e.label) * e.value, 0) / totalWeight;
     }
+
+    if (results.type === "SCALE") {
+      const scaleMin = results.scale?.min ?? 1;
+      const scaleMax = results.scale?.max ?? 5;
+      return (
+        <div className="space-y-3">
+          <ScaleChart
+            entries={results.entries}
+            average={mean}
+            scaleMin={scaleMin}
+            scaleMax={scaleMax}
+            dark={false}
+          />
+          <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
-        {mean !== null && (
-          <div className="flex items-center gap-2 rounded-lg bg-accent-subtle px-3 py-2">
-            <span className="text-xs text-muted">Media</span>
-            <span className="text-lg font-bold tabular-nums text-accent">{mean.toFixed(1)}</span>
-          </div>
-        )}
         <div className="space-y-2.5">
           {results.entries.map((e) => (
             <EntryBar key={e.label} label={e.label} value={e.value} total={results.totalAnswers} max={maxVal} />
@@ -153,10 +160,8 @@ export function StreamHistory({
                   <p className="mt-0.5 text-[11px] text-muted">{formatQuestionMeta(q.inputType, q.audienceType)}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1 mt-0.5">
-                  {q.status !== "DRAFT" && (
-                    <Badge variant={QUESTION_STATUS_VARIANTS[q.status] ?? "secondary"}>
-                      {QUESTION_STATUS_LABELS[q.status] ?? q.status}
-                    </Badge>
+                  {q.status === "LIVE" && (
+                    <Badge variant="live">Live</Badge>
                   )}
                   {showExport && (
                     <a

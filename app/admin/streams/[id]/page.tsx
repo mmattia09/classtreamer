@@ -94,6 +94,11 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
     }
   }
 
+  // Keep only LIVE questions or those with at least 1 answer
+  const finalHistoryQuestions = historyQuestions.filter(
+    q => q.status === "LIVE" || (q.results?.totalAnswers ?? 0) > 0
+  );
+
   // Questions for the control panel (LIVE stream only): DRAFT, LIVE, RESULTS (not CLOSED)
   const controlQuestions = stream.status === "LIVE"
     ? stream.questions.filter((q) => q.status !== "CLOSED")
@@ -190,16 +195,11 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
                           <Button type="submit" size="sm">Vai live</Button>
                         </form>
                       )}
-                      {/* LIVE: show "Risultati" + "Chiudi" */}
+                      {/* LIVE: show "Chiudi" */}
                       {q.status === "LIVE" && (
-                        <>
-                          <form action={`/api/admin/questions/${q.id}/results`} method="post">
-                            <Button type="submit" size="sm" variant="secondary">Risultati</Button>
-                          </form>
-                          <form action={`/api/admin/questions/${q.id}/close`} method="post">
-                            <Button type="submit" size="sm" variant="ghost">Chiudi</Button>
-                          </form>
-                        </>
+                        <form action={`/api/admin/questions/${q.id}/close`} method="post">
+                          <Button type="submit" size="sm" variant="ghost">Chiudi</Button>
+                        </form>
                       )}
                       {/* RESULTS: show "Chiudi" */}
                       {q.status === "RESULTS" && (
@@ -218,7 +218,7 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
         {/* History — for LIVE and ENDED */}
         {(stream.status === "LIVE" || stream.status === "ENDED") && (
           <StreamHistory
-            questions={historyQuestions}
+            questions={finalHistoryQuestions}
             streamId={stream.id}
             showExport
           />

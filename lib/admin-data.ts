@@ -39,6 +39,7 @@ export type QuestionArchiveEntry = {
   status: string;
   createdAt: string;
   streamTitle: string | null;
+  answerCount: number;
 };
 
 export type ViewerQuestionSummary = ViewerQuestionPayload;
@@ -101,6 +102,7 @@ export async function getAdminOverview() {
   const archive = await prisma.question.findMany({
     include: {
       stream: true,
+      _count: { select: { answers: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -113,6 +115,7 @@ export async function getAdminOverview() {
     status: question.status,
     createdAt: question.createdAt.toISOString(),
     streamTitle: question.stream?.title ?? null,
+    answerCount: question._count.answers,
   }));
 
   const viewerQuestions: ViewerQuestionSummary[] = (
