@@ -1,12 +1,15 @@
 import { redis } from "@/lib/redis";
 
+var RATE_LIMIT = 500; // Max requests
+var RATE_LIMIT_WINDOW_SECONDS = 10; // Time window in seconds
+
 async function ensureRedisConnection() {
   if (redis.status === "wait") {
     await redis.connect();
   }
 }
 
-export async function consumeRateLimit(key: string, limit = 5, windowSeconds = 10) {
+export async function consumeRateLimit(key: string, limit = RATE_LIMIT, windowSeconds = RATE_LIMIT_WINDOW_SECONDS) {
   try {
     await ensureRedisConnection();
 
@@ -30,7 +33,7 @@ export async function consumeRateLimit(key: string, limit = 5, windowSeconds = 1
   }
 }
 
-export async function checkRateLimit(key: string, limit = 5, windowSeconds = 10) {
+export async function checkRateLimit(key: string, limit = RATE_LIMIT, windowSeconds = RATE_LIMIT_WINDOW_SECONDS) {
   try {
     const result = await consumeRateLimit(key, limit, windowSeconds);
     return result.allowed;

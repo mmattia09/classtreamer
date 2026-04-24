@@ -33,6 +33,7 @@ export type CurrentStreamSummary = {
 
 export type QuestionArchiveEntry = {
   id: string;
+  streamId: string | null;
   text: string;
   inputType: string;
   audienceType: string;
@@ -109,6 +110,7 @@ export async function getAdminOverview() {
 
   const questionArchive: QuestionArchiveEntry[] = archive.map((question) => ({
     id: question.id,
+    streamId: question.streamId,
     text: question.text,
     inputType: question.inputType,
     audienceType: question.audienceType,

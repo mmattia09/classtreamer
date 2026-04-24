@@ -258,6 +258,7 @@ export function StreamEditor({
         saveExitTimerRef.current = window.setTimeout(() => {
           setSavePhase("idle");
           saveExitTimerRef.current = null;
+          router.refresh();
         }, 350);
       }
     } catch {
