@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   Bell,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   FileText,
@@ -31,7 +32,7 @@ import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
 import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
-import { formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 /* ─── Constants ─────────────────────────────────────────────────── */
 
@@ -93,9 +94,12 @@ function formatLiveElapsed(startedAt: string | null | undefined, now: number) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-function isQuestionExpired(q: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined) {
+function isQuestionExpiredAt(
+  q: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined,
+  now: number,
+) {
   if (!q?.openedAt || !q.timerSeconds) return false;
-  return new Date(q.openedAt).getTime() + q.timerSeconds * 1000 <= Date.now();
+  return new Date(q.openedAt).getTime() + q.timerSeconds * 1000 <= now;
 }
 
 function formatTimerRemaining(seconds: number) {
@@ -186,7 +190,7 @@ function ResultsBody({
       const scaleMin = results.scale?.min ?? 1;
       const scaleMax = results.scale?.max ?? 5;
       return (
-        <div className="space-y-3">
+        <div className="flex h-full min-h-0 flex-col">
           <ScaleChart
             entries={results.entries}
             average={mean}
@@ -194,7 +198,7 @@ function ResultsBody({
             scaleMax={scaleMax}
             dark={false}
           />
-          <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
+          <p className="mt-3 text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
         </div>
       );
     }
@@ -285,7 +289,12 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const [embedSelectionIds, setEmbedSelectionIds] = useState<string[]>([]);
   const [featuredEmbedAnswerId, setFeaturedEmbedAnswerId] = useState<string | null>(null);
   const [timerTick, setTimerTick] = useState(0);
+  const [clockNow, setClockNow] = useState<number | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(true);
+  const [archiveSidebarWidth, setArchiveSidebarWidth] = useState(320);
+  const [isResizingArchive, setIsResizingArchive] = useState(false);
+  const [currentSectionOpen, setCurrentSectionOpen] = useState(true);
+  const [pastSectionOpen, setPastSectionOpen] = useState(true);
   const [isPending, startTransition] = useTransition();
 
   // Embed state tracking
@@ -302,6 +311,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       initialOverview.results ? [[initialOverview.results.questionId, initialOverview.results]] : [],
     ),
   );
+  const archiveSplitRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { selectedQuestionRef.current = selectedQuestionId; }, [selectedQuestionId]);
   useEffect(() => { embedQuestionIdRef.current = embedQuestionId; }, [embedQuestionId]);
@@ -309,9 +319,43 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   useEffect(() => { featuredEmbedAnswerIdRef.current = featuredEmbedAnswerId; }, [featuredEmbedAnswerId]);
 
   useEffect(() => {
+    setClockNow(Date.now());
     const iv = window.setInterval(() => setTimerTick((n) => n + 1), 1000);
     return () => window.clearInterval(iv);
   }, []);
+
+  useEffect(() => {
+    if (timerTick === 0) return;
+    setClockNow(Date.now());
+  }, [timerTick]);
+
+  useEffect(() => {
+    if (!isResizingArchive) return;
+
+    function handleMouseMove(event: MouseEvent) {
+      const bounds = archiveSplitRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const separatorWidth = 8;
+      const nextWidth = Math.min(440, Math.max(240, event.clientX - bounds.left - separatorWidth / 2));
+      setArchiveSidebarWidth(nextWidth);
+    }
+
+    function handleMouseUp() {
+      setIsResizingArchive(false);
+    }
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizingArchive]);
 
   function pushNotification(title: string, description: string | undefined, tone: Notification["tone"]) {
     const id = ++notificationIdRef.current;
@@ -441,10 +485,18 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const streamPreviewUrl = liveStream?.embedUrl ?? scheduledStream?.embedUrl ?? currentStream?.embedUrl ?? null;
   const streamEditorId = liveStream?.streamId ?? scheduledStream?.streamId ?? currentStream?.id ?? streams.drafts[0]?.id ?? null;
   const streamDisplayTitle = liveStream?.title ?? scheduledStream?.title ?? currentStream?.title ?? null;
-  const deskActiveQuestion = timerTick >= 0 && activeQuestion && !isQuestionExpired(activeQuestion) ? activeQuestion : null;
+  const deskActiveQuestion = activeQuestion && (clockNow === null || !isQuestionExpiredAt(activeQuestion, clockNow))
+    ? activeQuestion
+    : null;
   const scheduledQuestions = currentStream?.questions.filter((q) => q.status === "DRAFT") ?? [];
   const nextQuestion = scheduledQuestions[0] ?? null;
   const archivedQuestions = questionArchive.filter(q => q.status === "LIVE" || q.answerCount > 0).slice(0, 16);
+  const currentArchiveQuestions = archivedQuestions.filter((q) => q.streamId === currentStream?.id);
+  const pastArchiveQuestions = archivedQuestions.filter((q) => q.streamId !== currentStream?.id);
+  const recentStreams = [...streams.upcoming, ...streams.past].slice(0, 4);
+  const selectedQuestionArchiveEntry = questionArchive.find((q) => q.id === selectedQuestionId) ?? null;
+  const selectedQuestionStreamId = selectedQuestionArchiveEntry?.streamId ?? currentStream?.id ?? null;
+  const selectedQuestionStreamTitle = selectedQuestionArchiveEntry?.streamTitle ?? currentStream?.title ?? null;
   const selectedQuestion = useMemo(
     () =>
       !selectedQuestionId
@@ -461,9 +513,9 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
   // Timer remaining
   const timerRemaining = (() => {
-    if (!deskActiveQuestion?.openedAt || !deskActiveQuestion?.timerSeconds) return null;
+    if (!deskActiveQuestion?.openedAt || !deskActiveQuestion?.timerSeconds || clockNow === null) return null;
     const expiresAt = new Date(deskActiveQuestion.openedAt).getTime() + deskActiveQuestion.timerSeconds * 1000;
-    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+    return Math.max(0, Math.ceil((expiresAt - clockNow) / 1000));
   })();
 
   /* ── Actions ── */
@@ -542,9 +594,27 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     setEmbedQuestionId(null);
   }
 
+  const dashboardBackgroundStyle = liveStream
+    ? {
+        backgroundImage:
+          "linear-gradient(to bottom, rgba(239, 68, 68, 0.22) 0%, rgba(239, 68, 68, 0.10) 18%, rgba(239, 68, 68, 0.00) 42%)",
+        backgroundRepeat: "no-repeat",
+      }
+    : scheduledStream
+      ? {
+          backgroundImage:
+            "linear-gradient(to bottom, rgba(245, 158, 11, 0.20) 0%, rgba(245, 158, 11, 0.09) 18%, rgba(245, 158, 11, 0.00) 42%)",
+          backgroundRepeat: "no-repeat",
+        }
+      : undefined;
+
   /* ─── Render ─────────────────────────────────────────────────── */
   return (
-    <div className="space-y-5">
+    <div
+      className="-mx-6 -mt-6 space-y-5 px-6 pt-6 lg:-mx-8 lg:-mt-8 lg:px-8 lg:pt-8"
+      style={dashboardBackgroundStyle}
+    >
+      <div className="relative z-10 space-y-5">
       {/* ── Page header ── */}
       <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
 
@@ -671,7 +741,9 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
               </>
             ) : (
               <p className="text-sm text-muted">
-                {activeQuestion && isQuestionExpired(activeQuestion) ? "Timer scaduto." : "Nessuna domanda in onda."}
+                {activeQuestion && clockNow !== null && isQuestionExpiredAt(activeQuestion, clockNow)
+                  ? "Timer scaduto."
+                  : "Nessuna domanda in onda."}
               </p>
             )}
           </div>
@@ -823,52 +895,140 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
               </button>
             </div>
 
-            <div className="grid divide-y divide-border md:grid-cols-[240px_1fr] md:divide-x md:divide-y-0">
+            <div
+              ref={archiveSplitRef}
+              className="grid divide-y divide-border md:divide-y-0"
+              style={{ gridTemplateColumns: `minmax(240px, ${archiveSidebarWidth}px) 8px minmax(0, 1fr)` }}
+            >
               {/* Question list */}
               <div className="max-h-[360px] overflow-y-auto">
                 {archivedQuestions.length ? (
-                  archivedQuestions.map((q) => (
-                    <button
-                      key={q.id}
-                      type="button"
-                      onClick={() => startTransition(() => setSelectedQuestionId(q.id))}
-                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-raised ${
-                        selectedQuestionId === q.id ? "bg-accent-subtle" : ""
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className={`line-clamp-2 text-sm ${selectedQuestionId === q.id ? "font-medium text-accent" : "text-foreground"}`}>
-                          {q.text}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-muted">
-                          {formatQuestionMeta(q.inputType, q.audienceType)}
-                          {embedQuestionId === q.id && (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
-                              <MonitorPlay className="h-2.5 w-2.5" /> embed
-                            </span>
-                          )}
-                        </p>
+                  <>
+                    {currentArchiveQuestions.length > 0 && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentSectionOpen((value) => !value)}
+                          className="sticky top-0 z-10 flex w-full items-center justify-between border-b border-border bg-surface px-4 py-2 text-left transition-colors hover:bg-surface-raised"
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+                            Live attuale
+                          </p>
+                          {currentSectionOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted" /> : <ChevronDown className="h-3.5 w-3.5 text-muted" />}
+                        </button>
+                        {currentSectionOpen && currentArchiveQuestions.map((q) => (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => startTransition(() => setSelectedQuestionId(q.id))}
+                            className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-raised ${
+                              selectedQuestionId === q.id ? "bg-accent-subtle" : ""
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className={`line-clamp-2 text-sm ${selectedQuestionId === q.id ? "font-medium text-accent" : "text-foreground"}`}>
+                                {q.text}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-muted">
+                                {formatQuestionMeta(q.inputType, q.audienceType)}
+                                {embedQuestionId === q.id && (
+                                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
+                                    <MonitorPlay className="h-2.5 w-2.5" /> embed
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            {q.status === "LIVE" && (
+                              <Badge variant="live" className="mt-0.5 shrink-0">
+                                Live
+                              </Badge>
+                            )}
+                          </button>
+                        ))}
                       </div>
-                      {q.status === "LIVE" && (
-                        <Badge variant="live" className="mt-0.5 shrink-0">
-                          Live
-                        </Badge>
-                      )}
-                    </button>
-                  ))
+                    )}
+                    {pastArchiveQuestions.length > 0 && (
+                      <div className="border-t border-border">
+                        <button
+                          type="button"
+                          onClick={() => setPastSectionOpen((value) => !value)}
+                          className="sticky top-0 z-10 flex w-full items-center justify-between border-b border-border bg-surface px-4 py-2 text-left transition-colors hover:bg-surface-raised"
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+                            Live passate
+                          </p>
+                          {pastSectionOpen ? <ChevronUp className="h-3.5 w-3.5 text-muted" /> : <ChevronDown className="h-3.5 w-3.5 text-muted" />}
+                        </button>
+                        {pastSectionOpen && pastArchiveQuestions.map((q) => (
+                          <button
+                            key={q.id}
+                            type="button"
+                            onClick={() => startTransition(() => setSelectedQuestionId(q.id))}
+                            className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-raised ${
+                              selectedQuestionId === q.id ? "bg-accent-subtle" : ""
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className={`line-clamp-2 text-sm ${selectedQuestionId === q.id ? "font-medium text-accent" : "text-foreground"}`}>
+                                {q.text}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-muted">
+                                {formatQuestionMeta(q.inputType, q.audienceType)}
+                                {q.streamTitle ? ` · ${q.streamTitle}` : ""}
+                                {embedQuestionId === q.id && (
+                                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-accent">
+                                    <MonitorPlay className="h-2.5 w-2.5" /> embed
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            {q.status === "LIVE" && (
+                              <Badge variant="live" className="mt-0.5 shrink-0">
+                                Live
+                              </Badge>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <p className="p-4 text-sm text-muted">Nessuna domanda archiviata.</p>
                 )}
               </div>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                onMouseDown={() => setIsResizingArchive(true)}
+                className="group hidden cursor-col-resize items-stretch justify-center bg-transparent md:flex"
+              >
+                <div
+                  className={cn(
+                    "w-px rounded-full bg-border transition-colors",
+                    isResizingArchive ? "bg-accent/45" : "group-hover:bg-accent/25",
+                  )}
+                />
+              </div>
 
               {/* Results panel */}
-              <div className="p-4">
+              <div className="min-w-0 p-4">
                 {selectedQuestion && (
-                  <div className="mb-4 flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-muted">
-                      {formatQuestionMeta(selectedQuestion.inputType, selectedQuestion.audienceType)}
-                      {" · "}{selectedResults?.totalAnswers ?? 0} risposte
-                    </p>
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{selectedQuestion.text}</p>
+                      <p className="mt-1 text-xs font-medium text-muted">
+                        {formatQuestionMeta(selectedQuestion.inputType, selectedQuestion.audienceType)}
+                        {" · "}{selectedResults?.totalAnswers ?? 0} risposte
+                      </p>
+                      {(selectedQuestionStreamId && selectedQuestionStreamTitle) && (
+                        <Link
+                          href={`/admin/streams/${selectedQuestionStreamId}`}
+                          className="mt-1 inline-flex text-xs font-medium text-accent transition-colors hover:text-accent-hover"
+                        >
+                          {selectedQuestionStreamTitle}
+                        </Link>
+                      )}
+                    </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {embedQuestionId === selectedQuestion.id && (
                         <MonitorPlay className="h-3.5 w-3.5 text-accent" />
@@ -896,7 +1056,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                 ) : !selectedResults ? (
                   <p className="text-sm text-muted">Nessun risultato da mostrare.</p>
                 ) : (
-                  <div className="max-h-[320px] overflow-y-auto">
+                  <div className={selectedResults.type === "SCALE" ? "h-[280px] overflow-hidden" : "max-h-[320px] overflow-y-auto"}>
                     <ResultsBody
                       results={selectedResults}
                       embedSelectionIds={embedSelectionIds}
@@ -913,33 +1073,52 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       </div>
 
       {/* ── Recent streams ── */}
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">Stream recenti</h2>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" asChild><Link href="/admin/streams">Vedi tutte</Link></Button>
-            <Button size="sm" asChild><Link href="/admin/streams/new">Nuova</Link></Button>
+      <div className="overflow-hidden rounded-xl border border-border bg-surface p-0">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Stream recenti</h2>
+              <p className="mt-0.5 text-xs text-muted">Programmate e concluse, con accesso rapido all&apos;editor.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" asChild><Link href="/admin/streams">Vedi tutte</Link></Button>
+              <Button size="sm" asChild><Link href="/admin/streams/new">Nuova</Link></Button>
+            </div>
           </div>
         </div>
-        {streams.past.slice(0, 4).length ? (
+        {recentStreams.length ? (
           <div className="divide-y divide-border">
-            {streams.past.slice(0, 4).map((stream) => (
-              <div key={stream.id} className="flex items-center gap-4 px-4 py-3">
+            {recentStreams.map((stream) => (
+              <Link
+                key={stream.id}
+                href={`/admin/streams/${stream.id}`}
+                className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface-raised"
+              >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{stream.title}</p>
-                  <p className="text-xs text-muted">
-                    {stream.scheduledAt ? formatDateTime(stream.scheduledAt) : "—"} · {stream.questionsCount} domande
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">{stream.title}</p>
+                    <Badge
+                      variant={stream.status === "LIVE" ? "live" : stream.status === "SCHEDULED" ? "warning" : "secondary"}
+                      className="shrink-0"
+                    >
+                      {stream.status === "LIVE" ? "Live" : stream.status === "SCHEDULED" ? "Programmata" : "Conclusa"}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {stream.scheduledAt ? formatDateTime(stream.scheduledAt) : "Non programmata"} · {stream.questionsCount} domande
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/admin/streams/${stream.id}`}>Apri</Link>
-                </Button>
-              </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs font-medium text-muted">Apri</span>
+                  <ChevronRight className="h-4 w-4 text-muted" />
+                </div>
+              </Link>
             ))}
           </div>
         ) : (
-          <p className="p-4 text-sm text-muted">Nessuna live passata.</p>
+          <p className="p-4 text-sm text-muted">Nessuna stream recente.</p>
         )}
+      </div>
       </div>
 
       {/* ── Notifications ── */}

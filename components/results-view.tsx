@@ -42,9 +42,9 @@ export function ScaleChart({
   const avgPos = ((safeAvg - scaleMin) / Math.max(scaleMax - scaleMin, 1)) * 100;
 
   return (
-    <div className={`flex flex-col gap-6 ${dark ? "h-full justify-center" : ""}`}>
+    <div className={`flex h-full min-h-0 flex-col gap-5 overflow-hidden ${dark ? "justify-center" : ""}`}>
       {/* Area chart */}
-      <div className="h-24">
+      <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={entries} margin={{ top: 8, right: 8, bottom: 4, left: 8 }}>
             <defs>
@@ -78,7 +78,7 @@ export function ScaleChart({
       </div>
 
       {/* Track + thumb */}
-      <div className="px-2">
+      <div className="shrink-0 px-2 pb-1">
         <div
           className="relative h-[3px] rounded-full"
           style={{ background: dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)" }}

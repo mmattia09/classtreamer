@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { DeleteStreamButton } from "@/components/admin/delete-stream-button";
 import { DuplicateStreamButton } from "@/components/admin/duplicate-stream-button";
 import { StreamControls } from "@/components/admin/stream-controls";
 import { StreamEditor } from "@/components/admin/stream-editor";
@@ -126,6 +127,7 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <DeleteStreamButton streamId={stream.id} isLive={stream.status === "LIVE"} />
             {stream.status === "ENDED" && (
               <DuplicateStreamButton streamId={stream.id} />
             )}
