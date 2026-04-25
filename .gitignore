@@ -4,6 +4,9 @@
 ### Claude Code ###
 .claude/
 
+### Runtime data ###
+.data/
+
 ### macOS ###
 # General
 .DS_Store
