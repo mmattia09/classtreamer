@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
+import { mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
+import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
   request: Request,
@@ -17,17 +19,46 @@ export async function POST(
 
   const q = await prisma.question.findUnique({
     where: { id },
-    select: { status: true, timerSeconds: true },
+    select: {
+      id: true,
+      text: true,
+      inputType: true,
+      audienceType: true,
+      options: true,
+      settings: true,
+      timerSeconds: true,
+      openedAt: true,
+      resultsVisible: true,
+      streamId: true,
+      status: true,
+    },
   });
 
   if (!q || q.status !== "LIVE") {
     return NextResponse.json({ error: "Question not live" }, { status: 400 });
   }
 
-  await prisma.question.update({
+  const question = await prisma.question.update({
     where: { id },
-    data: { timerSeconds: (q.timerSeconds ?? 0) + extra },
+    data: {
+      timerSeconds: q.timerSeconds === null ? null : q.timerSeconds + extra,
+    },
+    select: {
+      id: true,
+      text: true,
+      inputType: true,
+      audienceType: true,
+      options: true,
+      settings: true,
+      timerSeconds: true,
+      openedAt: true,
+      resultsVisible: true,
+      streamId: true,
+    },
   });
 
-  return NextResponse.json({ ok: true });
+  const payload = mapQuestion(question);
+  broadcast("question:update", payload);
+
+  return NextResponse.json({ ok: true, question: payload });
 }

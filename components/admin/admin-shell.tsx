@@ -36,11 +36,9 @@ function useTheme() {
 
   function applyTheme(t: Theme) {
     const root = document.documentElement;
-    if (t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
+    root.classList.remove("light", "dark");
+    if (t === "light") root.classList.add("light");
+    if (t === "dark") root.classList.add("dark");
   }
 
   function setTheme(t: Theme) {
