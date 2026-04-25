@@ -102,31 +102,40 @@ export function StudentStreamView({
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      const response = await fetch(`/api/streams/current?year=${year}&section=${section}`, { cache: "no-store" });
-      const payload = (await response.json()) as StreamStatusResponse;
-      setStatus(payload);
+      try {
+        const response = await fetch(`/api/streams/current?year=${year}&section=${section}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as StreamStatusResponse;
+        setStatus(payload);
+      } catch {
+        // Network error — keep last known state
+      }
     }, 5000);
     return () => clearInterval(interval);
   }, [year, section]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      const response = await fetch("/api/questions/active", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
-      const current = questionRef.current;
-      if (
-        payload.question?.id !== current?.id ||
-        payload.question?.timerSeconds !== current?.timerSeconds ||
-        payload.question?.openedAt !== current?.openedAt
-      ) {
-        setQuestion(payload.question);
-        if (payload.question?.id !== current?.id) {
-          setSubmitted(false);
+      try {
+        const response = await fetch("/api/questions/active", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
+        const current = questionRef.current;
+        if (
+          payload.question?.id !== current?.id ||
+          payload.question?.timerSeconds !== current?.timerSeconds ||
+          payload.question?.openedAt !== current?.openedAt
+        ) {
+          setQuestion(payload.question);
+          if (payload.question?.id !== current?.id) {
+            setSubmitted(false);
+          }
         }
+        if (!payload.question && current) { setQuestion(null); setSubmitted(false); }
+        if (payload.results) setAnswersCount(payload.results.totalAnswers);
+      } catch {
+        // Network error — keep last known state
       }
-      if (!payload.question && current) { setQuestion(null); setSubmitted(false); }
-      if (payload.results) setAnswersCount(payload.results.totalAnswers);
     }, 4000);
     return () => clearInterval(interval);
   }, []);
@@ -203,12 +212,18 @@ export function StudentStreamView({
 
   async function submitAnswer(value: unknown) {
     if (!question) return;
-    await fetch(`/api/questions/${question.id}/answer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classYear: year, classSection: section, value }),
-    });
-    setSubmitted(true);
+    try {
+      const response = await fetch(`/api/questions/${question.id}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classYear: year, classSection: section, value }),
+      });
+      if (response.ok) {
+        setSubmitted(true);
+      }
+    } catch {
+      // Network error — user can retry
+    }
   }
 
   async function submitViewerQuestion() {

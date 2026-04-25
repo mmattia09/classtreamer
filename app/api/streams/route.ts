@@ -1,9 +1,13 @@
 import { StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
+  if (!await isAdminAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const streams = await prisma.stream.findMany({
     include: {
       questions: true,
@@ -16,6 +20,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!await isAdminAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const payload = (await request.json()) as {
     title: string;
     embedUrl: string;

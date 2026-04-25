@@ -61,7 +61,7 @@ export async function POST(
 
   if (question.inputType === "OPEN") {
     const text = String((value as { text?: string })?.text ?? "").trim();
-    if (!text) {
+    if (!text || text.length > 2000) {
       return NextResponse.json({ error: "Risposta non valida" }, { status: 400 });
     }
   }

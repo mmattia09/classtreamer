@@ -63,11 +63,15 @@ export function DashboardClassesSidebar({
   const disconnected = sorted.filter((e) => !viewerMap.has(`${e.year}-${e.section}`));
 
   async function sendViewerQuestionToEmbed(id: string) {
-    await fetch("/api/admin/embed", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "viewer-question", viewerQuestionId: id }),
-    });
+    try {
+      await fetch("/api/admin/embed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "viewer-question", viewerQuestionId: id }),
+      });
+    } catch {
+      // Ignore network errors silently
+    }
   }
 
   return (

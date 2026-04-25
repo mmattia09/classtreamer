@@ -1,12 +1,16 @@
 import { QuestionStatus, StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isAdminAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { id } = await params;
   const stream = await prisma.stream.findUnique({
     where: { id },
@@ -23,6 +27,9 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isAdminAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { id } = await params;
   const payload = (await request.json()) as {
     title: string;
