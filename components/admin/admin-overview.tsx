@@ -29,6 +29,7 @@ import { ScaleChart } from "@/components/results-view";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getYearLabel } from "@/lib/classes";
+import { formatTimerRemaining, getQuestionTimerState, isQuestionExpiredAt } from "@/lib/question-timer";
 import { getSocket } from "@/lib/socket-client";
 import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
@@ -92,20 +93,6 @@ function formatLiveElapsed(startedAt: string | null | undefined, now: number) {
   const mm = String(m).padStart(2, "0");
   const ss = String(s).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function isQuestionExpiredAt(
-  q: Pick<QuestionPayload, "openedAt" | "timerSeconds"> | null | undefined,
-  now: number,
-) {
-  if (!q?.openedAt || !q.timerSeconds) return false;
-  return new Date(q.openedAt).getTime() + q.timerSeconds * 1000 <= now;
-}
-
-function formatTimerRemaining(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatQuestionMeta(inputType: string, audienceType?: string) {
@@ -219,7 +206,7 @@ function ResultsBody({
     const isOpen = ["OPEN", "WORD_COUNT"].includes(results.type);
     return (
       <div className="space-y-1.5">
-        {results.latestSubmissions!.slice(0, 20).map((entry) => (
+        {results.latestSubmissions!.map((entry) => (
           <div key={entry.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-foreground">{entry.value || "—"}</p>
@@ -240,12 +227,22 @@ function ResultsBody({
                   Embed
                 </label>
                 {results.type === "OPEN" && (
-                  <label title="In primo piano" className="flex cursor-pointer items-center gap-1 text-[11px] text-muted">
+                  <label
+                    title={featuredEmbedAnswerId === entry.id ? "Rimuovi dal primo piano" : "Metti in primo piano"}
+                    className={`flex cursor-pointer items-center gap-1 text-[11px] transition-colors ${
+                      featuredEmbedAnswerId === entry.id ? "text-accent" : "text-muted"
+                    }`}
+                  >
                     <input
                       type="radio"
                       name="featured-answer"
                       checked={featuredEmbedAnswerId === entry.id}
-                      onChange={() => onFeaturedChange(entry.id)}
+                      onChange={() =>
+                        onFeaturedChange(featuredEmbedAnswerId === entry.id ? null : entry.id)
+                      }
+                      onClick={() => {
+                        if (featuredEmbedAnswerId === entry.id) onFeaturedChange(null);
+                      }}
                     />
                     Featured
                   </label>
@@ -299,6 +296,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
   // Embed state tracking
   const [embedQuestionId, setEmbedQuestionId] = useState<string | null>(null);
+  const [embedSending, setEmbedSending] = useState(false);
 
   const selectedQuestionRef = useRef(selectedQuestionId);
   const embedQuestionIdRef = useRef(embedQuestionId);
@@ -414,6 +412,9 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       pushNotification("Domanda live", p.text, "success");
       void refreshOverview();
     });
+    socket.on("question:update", (p: QuestionPayload) => {
+      setActiveQuestion((current) => (current?.id === p.id ? p : current));
+    });
     socket.on("question:close", () => {
       setActiveQuestion(null);
       pushNotification("Domanda chiusa", undefined, "warning");
@@ -431,6 +432,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       socket.off("viewer-question:new");
       socket.off("results:update");
       socket.off("question:push");
+      socket.off("question:update");
       socket.off("question:close");
       socket.off("stream:status");
     };
@@ -473,11 +475,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     return () => ctrl.abort();
   }, [selectedQuestionId, results, results?.questionId]);
 
-  // Default embedSelectionIds: start empty, don't pre-select
+  // Reset selections only when the selected question changes, NOT on every result update
   useEffect(() => {
     setEmbedSelectionIds([]);
     setFeaturedEmbedAnswerId(null);
-  }, [selectedQuestionId, selectedResults]);
+  }, [selectedQuestionId]);
 
   /* ── Derived state ── */
   const liveStream = streamStatus.status === "live" ? streamStatus : null;
@@ -488,6 +490,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const deskActiveQuestion = activeQuestion && (clockNow === null || !isQuestionExpiredAt(activeQuestion, clockNow))
     ? activeQuestion
     : null;
+  const activeQuestionTimer = getQuestionTimerState(deskActiveQuestion, clockNow);
   const scheduledQuestions = currentStream?.questions.filter((q) => q.status === "DRAFT") ?? [];
   const nextQuestion = scheduledQuestions[0] ?? null;
   const archivedQuestions = questionArchive.filter(q => q.status === "LIVE" || q.answerCount > 0).slice(0, 16);
@@ -511,13 +514,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
        currentStream?.questions.find((q) => q.id === embedQuestionId)?.text ?? null)
     : null;
 
-  // Timer remaining
-  const timerRemaining = (() => {
-    if (!deskActiveQuestion?.openedAt || !deskActiveQuestion?.timerSeconds || clockNow === null) return null;
-    const expiresAt = new Date(deskActiveQuestion.openedAt).getTime() + deskActiveQuestion.timerSeconds * 1000;
-    return Math.max(0, Math.ceil((expiresAt - clockNow) / 1000));
-  })();
-
   /* ── Actions ── */
   async function runAction(url: string) {
     setError("");
@@ -528,13 +524,21 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
   async function extendTimer(seconds: number) {
     if (!deskActiveQuestion) return;
-    await fetch(`/api/admin/questions/${deskActiveQuestion.id}/extend`, {
+    const res = await fetch(`/api/admin/questions/${deskActiveQuestion.id}/extend`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ seconds }),
     });
-    // Optimistically update the active question's timer display
-    setActiveQuestion((prev) => prev ? { ...prev, timerSeconds: (prev.timerSeconds ?? 0) + seconds } : prev);
+    if (!res.ok) {
+      setError("Impossibile aggiornare il timer.");
+      return;
+    }
+
+    const payload = (await res.json().catch(() => null)) as { question?: QuestionPayload } | null;
+    if (payload?.question) {
+      const question = payload.question;
+      setActiveQuestion((current) => (current?.id === question.id ? question : current));
+    }
   }
 
   async function handleCreateLiveQuestion() {
@@ -579,19 +583,26 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   }
 
   async function sendToEmbed() {
-    if (!selectedQuestion) return;
-    await updateEmbed({
-      kind: "question",
-      questionId: selectedQuestion.id,
-      selectedAnswerIds: ["OPEN", "WORD_COUNT"].includes(selectedResults?.type ?? "") ? embedSelectionIds : undefined,
-      featuredAnswerId: selectedResults?.type === "OPEN" ? featuredEmbedAnswerId : null,
-    });
-    setEmbedQuestionId(selectedQuestion.id);
+    if (!selectedQuestion || embedSending) return;
+    setEmbedSending(true);
+    try {
+      await updateEmbed({
+        kind: "question",
+        questionId: selectedQuestion.id,
+        selectedAnswerIds: ["OPEN", "WORD_COUNT"].includes(selectedResults?.type ?? "") ? embedSelectionIds : undefined,
+        featuredAnswerId: selectedResults?.type === "OPEN" ? featuredEmbedAnswerId : null,
+      });
+      setEmbedQuestionId(selectedQuestion.id);
+      pushNotification("Embed aggiornato", selectedQuestion.text, "success");
+    } finally {
+      setEmbedSending(false);
+    }
   }
 
   async function clearEmbed() {
     await updateEmbed({ kind: "none" });
     setEmbedQuestionId(null);
+    pushNotification("Embed svuotato", undefined, "warning");
   }
 
   const dashboardBackgroundStyle = liveStream
@@ -703,30 +714,44 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                 </p>
 
                 {/* Timer */}
-                {timerRemaining !== null && (
+                {activeQuestionTimer.kind !== "expired" && (
                   <div className="mb-3 flex items-center gap-2">
                     <div className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-semibold tabular-nums ${
-                      timerRemaining > 30 ? "bg-success-subtle text-success-foreground"
-                      : timerRemaining > 10 ? "bg-warning-subtle text-warning-foreground"
-                      : "bg-destructive-subtle text-destructive-foreground"
+                      activeQuestionTimer.kind === "active"
+                        ? activeQuestionTimer.remainingSeconds > 30
+                          ? "bg-success-subtle text-success-foreground"
+                          : activeQuestionTimer.remainingSeconds > 10
+                            ? "bg-warning-subtle text-warning-foreground"
+                            : "bg-destructive-subtle text-destructive-foreground"
+                        : activeQuestionTimer.kind === "pending"
+                          ? "bg-warning-subtle text-warning-foreground"
+                          : "bg-surface-raised text-muted"
                     }`}>
                       <Clock className="h-3.5 w-3.5" />
-                      {formatTimerRemaining(timerRemaining)}
+                      {activeQuestionTimer.kind === "active"
+                        ? formatTimerRemaining(activeQuestionTimer.remainingSeconds)
+                        : activeQuestionTimer.kind === "pending"
+                          ? "Timer in avvio"
+                          : "Senza timer"}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => extendTimer(30)}
-                      className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
-                    >
-                      +30s
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => extendTimer(60)}
-                      className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
-                    >
-                      +60s
-                    </button>
+                    {activeQuestionTimer.kind !== "none" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => extendTimer(30)}
+                          className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
+                        >
+                          +30s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => extendTimer(60)}
+                          className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted transition-colors hover:bg-surface-raised hover:text-foreground"
+                        >
+                          +60s
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -1030,16 +1055,18 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
                       )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      {embedQuestionId === selectedQuestion.id && (
-                        <MonitorPlay className="h-3.5 w-3.5 text-accent" />
-                      )}
                       <Button
                         size="sm"
-                        variant="default"
+                        variant={embedQuestionId === selectedQuestion.id ? "secondary" : "default"}
                         onClick={sendToEmbed}
+                        disabled={embedSending}
                       >
                         <MonitorPlay className="h-3.5 w-3.5" />
-                        Manda a embed
+                        {embedSending
+                          ? "Invio…"
+                          : embedQuestionId === selectedQuestion.id
+                            ? "Aggiorna embed"
+                            : "Manda a embed"}
                       </Button>
                     </div>
                   </div>
@@ -1074,12 +1101,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
 
       {/* ── Recent streams ── */}
       <div className="overflow-hidden rounded-xl border border-border bg-surface p-0">
-        <div className="border-b border-border px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">Stream recenti</h2>
-              <p className="mt-0.5 text-xs text-muted">Programmate e concluse, con accesso rapido all&apos;editor.</p>
-            </div>
+            <div className="border-b border-border px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Stream recenti</h2>
+                </div>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" asChild><Link href="/admin/streams">Vedi tutte</Link></Button>
               <Button size="sm" asChild><Link href="/admin/streams/new">Nuova</Link></Button>
