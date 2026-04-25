@@ -79,6 +79,9 @@ export function StudentStreamView({
       setQuestion(payload);
       setSubmitted(false);
     });
+    socket.on("question:update", (payload: QuestionPayload) => {
+      setQuestion((current) => (current?.id === payload.id ? payload : current));
+    });
     socket.on("question:close", () => { setQuestion(null); setSubmitted(false); });
     socket.on("results:update", (payload: ResultsPayload) => setAnswersCount(payload.totalAnswers));
 
@@ -89,6 +92,7 @@ export function StudentStreamView({
       socket.off("disconnect", onDisconnect);
       socket.off("stream:status", setStatus);
       socket.off("question:push");
+      socket.off("question:update");
       socket.off("question:close");
       socket.off("results:update");
     };
@@ -111,7 +115,16 @@ export function StudentStreamView({
       if (!response.ok) return;
       const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
       const current = questionRef.current;
-      if (payload.question?.id !== current?.id) { setQuestion(payload.question); setSubmitted(false); }
+      if (
+        payload.question?.id !== current?.id ||
+        payload.question?.timerSeconds !== current?.timerSeconds ||
+        payload.question?.openedAt !== current?.openedAt
+      ) {
+        setQuestion(payload.question);
+        if (payload.question?.id !== current?.id) {
+          setSubmitted(false);
+        }
+      }
       if (!payload.question && current) { setQuestion(null); setSubmitted(false); }
       if (payload.results) setAnswersCount(payload.results.totalAnswers);
     }, 4000);

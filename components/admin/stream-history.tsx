@@ -82,7 +82,7 @@ function ResultsBody({ results }: { results: ResultsPayload }) {
   if ((results.latestSubmissions?.length ?? 0) > 0) {
     return (
       <div className="space-y-1.5">
-        {results.latestSubmissions!.slice(0, 20).map((entry) => (
+        {results.latestSubmissions!.map((entry) => (
           <div key={entry.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-foreground">{entry.value || "—"}</p>

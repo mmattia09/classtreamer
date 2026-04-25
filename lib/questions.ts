@@ -162,8 +162,7 @@ export function buildResults(question: QuestionWithAnswers, answerIds?: string[]
     ? question.answers.filter((answer) => answerIds.includes(answer.id))
     : question.answers;
   const totalAnswers = filteredAnswers.length;
-  const latestSubmissions = filteredAnswers
-    .slice(-18)
+  const latestSubmissions = [...filteredAnswers]
     .reverse()
     .map((answer) => {
       const classLabel =
@@ -216,8 +215,7 @@ export function buildResults(question: QuestionWithAnswers, answerIds?: string[]
       questionText: question.text,
       totalAnswers,
       entries: [],
-      latestAnswers: filteredAnswers
-        .slice(-18)
+      latestAnswers: [...filteredAnswers]
         .reverse()
         .map((answer) => String((answer.value as { text?: string }).text ?? "")),
       latestSubmissions,
