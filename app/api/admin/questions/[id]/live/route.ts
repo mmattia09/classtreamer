@@ -1,6 +1,7 @@
 import { QuestionStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/auth";
 import { getResultsForQuestion, mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
 import { getPublicUrl } from "@/lib/server-config";
@@ -10,6 +11,9 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!await isAdminAuthenticated()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { id } = await params;
   const target = await prisma.question.findUnique({
     where: { id },
