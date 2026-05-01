@@ -4,10 +4,12 @@ import { getYearLabel } from "@/lib/classes";
 
 export function escapeCsv(value: string) {
   const normalized = value.replace(/\r?\n/g, " ").trim();
-  if (/["\n,]/.test(normalized)) {
-    return `"${normalized.replace(/"/g, "\"\"")}"`;
+  // Neutralize formula injection: Excel/Sheets execute cells starting with =, +, -, @, tab, CR
+  const safe = /^[=+\-@\t\r]/.test(normalized) ? `'${normalized}` : normalized;
+  if (/["\n,]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return normalized;
+  return safe;
 }
 
 export function formatClassLabel(year?: number | null, section?: string | null) {

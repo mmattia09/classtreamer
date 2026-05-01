@@ -39,6 +39,7 @@ export function StudentStreamView({
   const [question, setQuestion] = useState<QuestionPayload | null>(initialQuestion);
   const [answersCount, setAnswersCount] = useState(initialResults?.totalAnswers ?? 0);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [viewerQuestionExpanded, setViewerQuestionExpanded] = useState(false);
@@ -75,15 +76,25 @@ export function StudentStreamView({
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("stream:status", setStatus);
-    socket.on("question:push", (payload: QuestionPayload) => {
+    function onQuestionPush(payload: QuestionPayload) {
       setQuestion(payload);
       setSubmitted(false);
-    });
-    socket.on("question:update", (payload: QuestionPayload) => {
+      setSubmitError(null);
+    }
+    function onQuestionUpdate(payload: QuestionPayload) {
       setQuestion((current) => (current?.id === payload.id ? payload : current));
-    });
-    socket.on("question:close", () => { setQuestion(null); setSubmitted(false); });
-    socket.on("results:update", (payload: ResultsPayload) => setAnswersCount(payload.totalAnswers));
+    }
+    function onQuestionClose() {
+      setQuestion(null);
+      setSubmitted(false);
+      setSubmitError(null);
+    }
+    function onResultsUpdate(payload: ResultsPayload) { setAnswersCount(payload.totalAnswers); }
+
+    socket.on("question:push", onQuestionPush);
+    socket.on("question:update", onQuestionUpdate);
+    socket.on("question:close", onQuestionClose);
+    socket.on("results:update", onResultsUpdate);
 
     if (socket.connected) onConnect();
 
@@ -91,10 +102,10 @@ export function StudentStreamView({
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("stream:status", setStatus);
-      socket.off("question:push");
-      socket.off("question:update");
-      socket.off("question:close");
-      socket.off("results:update");
+      socket.off("question:push", onQuestionPush);
+      socket.off("question:update", onQuestionUpdate);
+      socket.off("question:close", onQuestionClose);
+      socket.off("results:update", onResultsUpdate);
     };
   }, [year, section]);
 
@@ -212,6 +223,7 @@ export function StudentStreamView({
 
   async function submitAnswer(value: unknown) {
     if (!question) return;
+    setSubmitError(null);
     try {
       const response = await fetch(`/api/questions/${question.id}/answer`, {
         method: "POST",
@@ -220,9 +232,12 @@ export function StudentStreamView({
       });
       if (response.ok) {
         setSubmitted(true);
+        return;
       }
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      setSubmitError(payload?.error ?? "Impossibile inviare la risposta. Riprova.");
     } catch {
-      // Network error — user can retry
+      setSubmitError("Errore di rete. Controlla la connessione e riprova.");
     }
   }
 
@@ -347,8 +362,13 @@ export function StudentStreamView({
                   </div>
                 ) : null}
               </div>
+              {submitError ? (
+                <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive-subtle px-3 py-2 text-sm text-destructive-foreground">
+                  {submitError}
+                </div>
+              ) : null}
               <div className="flex-1 overflow-y-auto">
-                <QuestionInput question={question} onSubmit={submitAnswer} />
+                <QuestionInput key={question.id} question={question} onSubmit={submitAnswer} />
               </div>
             </div>
           ) : null}
