@@ -2,6 +2,7 @@ import { AudienceType, Prisma, QuestionInputType, QuestionStatus, StreamStatus }
 
 import { getYearLabel } from "@/lib/classes";
 import { prisma } from "@/lib/prisma";
+import { broadcast } from "@/lib/socket-bridge";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse } from "@/lib/types";
 
 type QuestionWithAnswers = Prisma.QuestionGetPayload<{
@@ -151,6 +152,8 @@ export async function getActiveQuestion() {
         resultsVisible: false,
       },
     });
+    // Notify all clients that the question has been closed due to timer expiry
+    broadcast("question:close", { questionId: question.id });
     return null;
   }
 

@@ -9,25 +9,37 @@ function getAdminPasswordFingerprint() {
 }
 
 function sign(value: string) {
-  const secret = process.env.SESSION_SECRET ?? "dev-secret";
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret === "dev-secret") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("SESSION_SECRET must be set to a strong random value in production.");
+    }
+    // In development allow the insecure fallback but warn loudly
+    console.warn("[auth] SESSION_SECRET not set — using insecure dev-secret. Set SESSION_SECRET in .env before deploying.");
+  }
   return crypto
-    .createHmac("sha256", `${secret}:${getAdminPasswordFingerprint()}`)
+    .createHmac("sha256", `${secret ?? "dev-secret"}:${getAdminPasswordFingerprint()}`)
     .update(value)
     .digest("hex");
 }
+
+// 30 days in seconds
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 
 export async function createAdminSession(options?: { secure?: boolean }) {
   const payload = "admin";
   const token = `${payload}.${sign(payload)}`;
 
+  // Determine secure flag: explicit override > NODE_ENV production default
+  const isSecure = options?.secure ?? process.env.NODE_ENV === "production";
+
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    // In Docker/Compose we often run with NODE_ENV=production on plain HTTP.
-    // Let the caller decide based on request scheme / proxy headers.
-    secure: options?.secure ?? false,
+    secure: isSecure,
     path: "/",
+    maxAge: SESSION_MAX_AGE,
   });
 }
 
