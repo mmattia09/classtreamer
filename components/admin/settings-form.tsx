@@ -24,7 +24,6 @@ export function AdminSettingsForm({ initialClasses, initialAppName, initialAppIc
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [savePhase, setSavePhase] = useState<"idle" | "saving" | "exiting">("idle");
   const saveExitTimerRef = useRef<number | null>(null);
-  const saving = savePhase === "saving";
   const saveAnimatingOut = savePhase === "exiting";
   const saveBusy = savePhase === "saving" || savePhase === "exiting";
   const saveVisible = isDirty || saveBusy;

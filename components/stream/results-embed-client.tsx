@@ -33,19 +33,26 @@ export function ResultsEmbedClient({ initialEmbed }: { initialEmbed: EmbedPayloa
     document.documentElement.classList.remove("dark");
 
     const socket = getSocket();
-    socket.on("embed:update", (payload: EmbedPayload) => setEmbed(payload));
-    socket.on("results:update", (p: { questionId: string }) => {
-      if (p.questionId === currentQuestionIdRef.current) {
-        void fetch("/api/embed/state", { cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((fresh: EmbedPayload | null) => {
-            if (fresh) setEmbed(fresh);
-          });
-      }
-    });
+    // Passing the handler to off() matters here: off("results:update") with no
+    // reference also removed the admin dashboard's listener for the same event.
+    const onEmbedUpdate = (payload: EmbedPayload) => setEmbed(payload);
+    const onResultsUpdate = (p: { questionId: string }) => {
+      if (p.questionId !== currentQuestionIdRef.current) return;
+      void fetch("/api/embed/state", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((fresh: EmbedPayload | null) => {
+          if (fresh) setEmbed(fresh);
+        })
+        .catch(() => {
+          // Keep showing the last good payload on a network blip.
+        });
+    };
+
+    socket.on("embed:update", onEmbedUpdate);
+    socket.on("results:update", onResultsUpdate);
     return () => {
-      socket.off("embed:update");
-      socket.off("results:update");
+      socket.off("embed:update", onEmbedUpdate);
+      socket.off("results:update", onResultsUpdate);
     };
   }, []);
 

@@ -12,7 +12,6 @@ import {
   MonitorPlay,
   MonitorX,
   Play,
-  Plus,
   Radio,
   SendHorizontal,
   Square,
@@ -31,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getYearLabel } from "@/lib/classes";
 import { formatTimerRemaining, getQuestionTimerState, isQuestionExpiredAt } from "@/lib/question-timer";
 import { getSocket } from "@/lib/socket-client";
+import { useClock } from "@/lib/use-clock";
 import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -104,13 +104,8 @@ function formatQuestionMeta(inputType: string, audienceType?: string) {
 /* ─── Sub-components ────────────────────────────────────────────── */
 
 function LivePill({ status, startedAt }: { status: StreamStatusResponse["status"]; startedAt?: string | null }) {
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    if (status !== "live" || !startedAt) { setNow(null); return; }
-    setNow(Date.now());
-    const iv = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(iv);
-  }, [startedAt, status]);
+  const clock = useClock();
+  const now = status === "live" && startedAt ? clock : null;
 
   if (status === "live") {
     return (
@@ -285,8 +280,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const [selectedResultsLoading, setSelectedResultsLoading] = useState(false);
   const [embedSelectionIds, setEmbedSelectionIds] = useState<string[]>([]);
   const [featuredEmbedAnswerId, setFeaturedEmbedAnswerId] = useState<string | null>(null);
-  const [timerTick, setTimerTick] = useState(0);
-  const [clockNow, setClockNow] = useState<number | null>(null);
+  const clockNow = useClock();
   const [archiveOpen, setArchiveOpen] = useState(true);
   const [archiveSidebarWidth, setArchiveSidebarWidth] = useState(320);
   const [isResizingArchive, setIsResizingArchive] = useState(false);
@@ -316,16 +310,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   useEffect(() => { embedSelectionIdsRef.current = embedSelectionIds; }, [embedSelectionIds]);
   useEffect(() => { featuredEmbedAnswerIdRef.current = featuredEmbedAnswerId; }, [featuredEmbedAnswerId]);
 
-  useEffect(() => {
-    setClockNow(Date.now());
-    const iv = window.setInterval(() => setTimerTick((n) => n + 1), 1000);
-    return () => window.clearInterval(iv);
-  }, []);
-
-  useEffect(() => {
-    if (timerTick === 0) return;
-    setClockNow(Date.now());
-  }, [timerTick]);
 
   useEffect(() => {
     if (!isResizingArchive) return;
@@ -384,10 +368,12 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     const socket = getSocket();
     socket.emit("admin:join");
 
-    socket.on("viewer-question:new", (p: ViewerQuestionPayload) =>
-      pushNotification("Domanda dal pubblico", `${formatViewerQuestionClassLabel(p)} · ${p.text}`, "info"),
-    );
-    socket.on("results:update", (p: ResultsPayload) => {
+    // Every listener is removed by reference below: the socket is a shared
+    // singleton, so off() without the handler would also drop the listeners
+    // registered by DashboardClassesSidebar and by the OBS overlay.
+    const onViewerQuestion = (p: ViewerQuestionPayload) =>
+      pushNotification("Domanda dal pubblico", `${formatViewerQuestionClassLabel(p)} · ${p.text}`, "info");
+    const onResultsUpdate = (p: ResultsPayload) => {
       resultsCacheRef.current.set(p.questionId, p);
       setResults(p);
       if (selectedQuestionRef.current === p.questionId) setSelectedResults(p);
@@ -405,36 +391,43 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
           }),
         });
       }
-    });
-    socket.on("question:push", (p: QuestionPayload) => {
+    };
+    const onQuestionPush = (p: QuestionPayload) => {
       setActiveQuestion(p);
       if (!selectedQuestionRef.current) setSelectedQuestionId(p.id);
       pushNotification("Domanda live", p.text, "success");
       void refreshOverview();
-    });
-    socket.on("question:update", (p: QuestionPayload) => {
+    };
+    const onQuestionUpdate = (p: QuestionPayload) => {
       setActiveQuestion((current) => (current?.id === p.id ? p : current));
-    });
-    socket.on("question:close", () => {
+    };
+    const onQuestionClose = () => {
       setActiveQuestion(null);
       pushNotification("Domanda chiusa", undefined, "warning");
       void refreshOverview();
-    });
-    socket.on("stream:status", (p: StreamStatusResponse) => {
+    };
+    const onStreamStatus = (p: StreamStatusResponse) => {
       setStreamStatus(p);
       if (p.status === "live") pushNotification("Live in onda", (p as { title?: string }).title, "success");
       else if (p.status === "scheduled") pushNotification("Live programmata", undefined, "info");
       else pushNotification("Live terminata", undefined, "warning");
       void refreshOverview();
-    });
+    };
+
+    socket.on("viewer-question:new", onViewerQuestion);
+    socket.on("results:update", onResultsUpdate);
+    socket.on("question:push", onQuestionPush);
+    socket.on("question:update", onQuestionUpdate);
+    socket.on("question:close", onQuestionClose);
+    socket.on("stream:status", onStreamStatus);
 
     return () => {
-      socket.off("viewer-question:new");
-      socket.off("results:update");
-      socket.off("question:push");
-      socket.off("question:update");
-      socket.off("question:close");
-      socket.off("stream:status");
+      socket.off("viewer-question:new", onViewerQuestion);
+      socket.off("results:update", onResultsUpdate);
+      socket.off("question:push", onQuestionPush);
+      socket.off("question:update", onQuestionUpdate);
+      socket.off("question:close", onQuestionClose);
+      socket.off("stream:status", onStreamStatus);
     };
   }, []); // intentional: socket setup only on mount
 
@@ -447,6 +440,11 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     return () => clearInterval(iv);
   }, []); // intentional: polling setup only on mount
 
+  // The synchronous branches below settle the panel from state already in hand
+  // (the live results, or the cache) so no request is made and no spinner is
+  // shown; only the cache miss actually fetches. Writing that synchronously is
+  // the point, hence the rule is off for this effect.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selectedQuestionId) { setSelectedResults(null); setSelectedResultsLoading(false); return; }
     if (results?.questionId === selectedQuestionId) {
@@ -474,12 +472,18 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       .catch(() => undefined);
     return () => ctrl.abort();
   }, [selectedQuestionId, results, results?.questionId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Reset selections only when the selected question changes, NOT on every result update
-  useEffect(() => {
+  // Reset selections only when the selected question changes, NOT on every
+  // result update. Adjusted during render (React's documented pattern for
+  // resetting state on a change) rather than in an effect, so the stale
+  // selection is never rendered for a frame against the new question.
+  const [selectionOwnerId, setSelectionOwnerId] = useState(selectedQuestionId);
+  if (selectionOwnerId !== selectedQuestionId) {
+    setSelectionOwnerId(selectedQuestionId);
     setEmbedSelectionIds([]);
     setFeaturedEmbedAnswerId(null);
-  }, [selectedQuestionId]);
+  }
 
   /* ── Derived state ── */
   const liveStream = streamStatus.status === "live" ? streamStatus : null;

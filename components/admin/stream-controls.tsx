@@ -1,6 +1,6 @@
 "use client";
 
-import { Radio, Square, Tv2 } from "lucide-react";
+import { Radio, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 

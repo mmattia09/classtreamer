@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { LayoutDashboard, Radio, Settings, LogOut, Moon, Sun, Monitor, ExternalLink } from "lucide-react";
@@ -25,26 +25,44 @@ const NAV_ITEMS: NavItem[] = [
 
 type Theme = "light" | "dark" | "system";
 
+const THEME_STORAGE_KEY = "theme";
+const THEME_EVENT = "classtreamer:theme";
+
+function applyTheme(theme: Theme) {
+  const root = document.documentElement;
+  root.classList.remove("light", "dark");
+  if (theme === "light") root.classList.add("light");
+  if (theme === "dark") root.classList.add("dark");
+}
+
+function subscribeToTheme(onChange: () => void) {
+  window.addEventListener(THEME_EVENT, onChange);
+  // Keep tabs in sync when the choice is changed in another one.
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(THEME_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+function readStoredTheme(): Theme {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return stored === "light" || stored === "dark" ? stored : "system";
+}
+
+/**
+ * Reads the stored preference through useSyncExternalStore rather than through
+ * a setState inside an effect, which rendered one frame with the wrong icon.
+ * The class itself is applied before paint by the inline script in app/layout.tsx,
+ * so there is no flash of the wrong theme.
+ */
 function useTheme() {
-  const [theme, setThemeState] = useState<Theme>("system");
+  const theme = useSyncExternalStore(subscribeToTheme, readStoredTheme, () => "system" as Theme);
 
-  useEffect(() => {
-    const stored = (localStorage.getItem("theme") as Theme) ?? "system";
-    setThemeState(stored);
-    applyTheme(stored);
-  }, []);
-
-  function applyTheme(t: Theme) {
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    if (t === "light") root.classList.add("light");
-    if (t === "dark") root.classList.add("dark");
-  }
-
-  function setTheme(t: Theme) {
-    setThemeState(t);
-    localStorage.setItem("theme", t);
-    applyTheme(t);
+  function setTheme(next: Theme) {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+    applyTheme(next);
+    window.dispatchEvent(new Event(THEME_EVENT));
   }
 
   return { theme, setTheme };
@@ -85,16 +103,18 @@ export function AdminShell({
   rightPanelWidth?: number;
   children: ReactNode;
 }>) {
-  const [branding, setBranding] = useState({ name: appName, icon: appIcon });
-
-  useEffect(() => {
-    setBranding({ name: appName, icon: appIcon });
-  }, [appName, appIcon]);
+  // Null until a live settings:update arrives; until then the server-rendered
+  // props are used directly, so a navigation that brings fresher props is not
+  // shadowed by stale state.
+  const [liveBranding, setLiveBranding] = useState<{ name: string; icon: string | null } | null>(
+    null,
+  );
+  const branding = liveBranding ?? { name: appName, icon: appIcon ?? null };
 
   useEffect(() => {
     const socket = getSocket();
     const onUpdate = (payload: { appName: string; appIcon: string | null }) => {
-      setBranding({ name: payload.appName, icon: payload.appIcon });
+      setLiveBranding({ name: payload.appName, icon: payload.appIcon });
     };
     socket.on("settings:update", onUpdate);
     return () => { socket.off("settings:update", onUpdate); };

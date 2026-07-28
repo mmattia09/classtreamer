@@ -46,12 +46,6 @@ type PendingFocus =
   | { type: "option"; qIdx: number; optIdx: number }
   | { type: "question"; qIdx: number };
 
-const STREAM_STATUS_VARIANTS: Record<string, "live" | "warning" | "secondary"> = {
-  DRAFT: "secondary", SCHEDULED: "warning", LIVE: "live", ENDED: "secondary",
-};
-const STREAM_STATUS_LABELS: Record<string, string> = {
-  DRAFT: "Bozza", SCHEDULED: "Programmata", LIVE: "Live", ENDED: "Conclusa",
-};
 const QUESTION_STATUS_VARIANTS: Record<string, "live" | "default" | "secondary"> = {
   LIVE: "live", RESULTS: "default", DRAFT: "secondary", CLOSED: "secondary",
 };
@@ -73,6 +67,11 @@ const TIMER_PRESETS: { label: string; value: number | null }[] = [
 const PRESET_VALUES = new Set(TIMER_PRESETS.map((p) => p.value));
 const QUESTION_FIELD_FOCUS =
   "focus-visible:border-accent/70 focus-visible:ring-1 focus-visible:ring-accent/45 focus-visible:ring-offset-0";
+
+/** Drop indicator between two questions. Defined at module scope: declaring a
+ *  component inside a render body creates a new component type on every render,
+ *  which remounts it and discards its DOM node each time. */
+const InsertLine = () => <div className="mx-1 h-0.5 rounded-full bg-accent" />;
 
 /** Convert a UTC ISO string to a local datetime-local input value (YYYY-MM-DDTHH:mm) */
 function isoToLocalInput(iso: string): string {
@@ -119,7 +118,6 @@ export function StreamEditor({
 }) {
   const router = useRouter();
   const questionsEndRef = useRef<HTMLDivElement>(null);
-  const dragIndexRef = useRef<number | null>(null);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const saveExitTimerRef = useRef<number | null>(null);
 
@@ -145,7 +143,9 @@ export function StreamEditor({
   const [invalidQuestions, setInvalidQuestions] = useState<Set<number>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [insertAt, setInsertAt] = useState<number | null>(null);
-  const saving = savePhase === "saving";
+  // State rather than a ref: the insert indicator is derived from it during
+  // render, and React does not re-render when a ref changes.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const saveAnimatingOut = savePhase === "exiting";
   const saveBusy = savePhase === "saving" || savePhase === "exiting";
   const saveVisible = isDirty || saveBusy;
@@ -324,18 +324,23 @@ export function StreamEditor({
   }
 
   function toggleCollapse(id: string) {
-    setCollapsed((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   /* ── Drag and drop ── */
-  function handleDragStart(idx: number) { dragIndexRef.current = idx; }
+  function handleDragStart(idx: number) { setDragIndex(idx); }
   function handleDragOver(e: React.DragEvent, idx: number) {
     e.preventDefault();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setInsertAt(e.clientY < rect.top + rect.height / 2 ? idx : idx + 1);
   }
   function handleDrop() {
-    const from = dragIndexRef.current;
+    const from = dragIndex;
     if (from === null || insertAt === null) { cleanup(); return; }
     const target = insertAt > from ? insertAt - 1 : insertAt;
     if (from !== target) {
@@ -348,9 +353,7 @@ export function StreamEditor({
     }
     cleanup();
   }
-  function cleanup() { dragIndexRef.current = null; setInsertAt(null); }
-
-  const InsertLine = () => <div className="mx-1 h-0.5 rounded-full bg-accent" />;
+  function cleanup() { setDragIndex(null); setInsertAt(null); }
 
   return (
     <div className="space-y-4">
@@ -501,7 +504,7 @@ export function StreamEditor({
 
               return (
                 <div key={q.id}>
-                  {insertAt === idx && dragIndexRef.current !== null && dragIndexRef.current !== idx && <InsertLine />}
+                  {insertAt === idx && dragIndex !== null && dragIndex !== idx && <InsertLine />}
 
                   <div
                     draggable
@@ -770,7 +773,7 @@ export function StreamEditor({
               );
             })}
 
-            {insertAt === payload.questions.length && dragIndexRef.current !== null && <InsertLine />}
+            {insertAt === payload.questions.length && dragIndex !== null && <InsertLine />}
             <div ref={questionsEndRef} />
           </CardContent>
         </Card>

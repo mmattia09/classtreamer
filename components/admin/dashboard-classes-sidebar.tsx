@@ -40,15 +40,24 @@ export function DashboardClassesSidebar({
 
   useEffect(() => {
     const socket = getSocket();
-    socket.on("viewer:count", (p: ViewerCount[]) => setViewerCounts(p));
-    socket.on("classes:update", (p: ClassesEntry[]) => setClasses(p));
-    socket.on("viewer-question:new", (p: ViewerQuestionSummary) =>
-      setViewerQuestions((cur) => [p, ...cur.filter((e) => e.id !== p.id)].slice(0, 20)),
-    );
+    // Handler references are required on off(): the socket is shared, and
+    // AdminOverview listens to viewer-question:new on this same page.
+    const onCount = (p: ViewerCount[]) => setViewerCounts(p);
+    const onClasses = (p: ClassesEntry[]) => setClasses(p);
+    const onViewerQuestion = (p: ViewerQuestionSummary) =>
+      setViewerQuestions((cur) => [p, ...cur.filter((e) => e.id !== p.id)].slice(0, 20));
+
+    socket.on("viewer:count", onCount);
+    socket.on("classes:update", onClasses);
+    socket.on("viewer-question:new", onViewerQuestion);
+
+    // viewer:count is only sent to the admin room, which requires joining it.
+    socket.emit("admin:join");
+
     return () => {
-      socket.off("viewer:count");
-      socket.off("classes:update");
-      socket.off("viewer-question:new");
+      socket.off("viewer:count", onCount);
+      socket.off("classes:update", onClasses);
+      socket.off("viewer-question:new", onViewerQuestion);
     };
   }, []);
 

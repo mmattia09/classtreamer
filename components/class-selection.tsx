@@ -23,13 +23,18 @@ export function ClassSelection({ initialClasses, appName, appIcon, isAdmin }: Pr
 
   useEffect(() => {
     const socket = getSocket();
-    socket.on("classes:update", (p: ClassEntry[]) => setClasses(p));
-    socket.on("settings:update", (p: { appName: string; appIcon: string }) => {
+    // The socket is a shared singleton: off() without the handler reference
+    // removes every listener for that event, including other components'.
+    const onClasses = (p: ClassEntry[]) => setClasses(p);
+    const onSettings = (p: { appName: string; appIcon: string }) => {
       setBranding({ name: p.appName, icon: p.appIcon });
-    });
+    };
+
+    socket.on("classes:update", onClasses);
+    socket.on("settings:update", onSettings);
     return () => {
-      socket.off("classes:update");
-      socket.off("settings:update");
+      socket.off("classes:update", onClasses);
+      socket.off("settings:update", onSettings);
     };
   }, []);
 
@@ -44,11 +49,11 @@ export function ClassSelection({ initialClasses, appName, appIcon, isAdmin }: Pr
     [grouped],
   );
 
-  useEffect(() => {
-    if (selectedYear !== null && !grouped.has(selectedYear)) setSelectedYear(null);
-  }, [grouped, selectedYear]);
-
-  const sectionsForYear = selectedYear !== null ? (grouped.get(selectedYear) ?? []) : [];
+  // Derived rather than corrected in an effect: if the selected year disappears
+  // from a live classes:update, the render that drops it already renders no
+  // sections, instead of showing a stale list for one frame.
+  const activeYear = selectedYear !== null && grouped.has(selectedYear) ? selectedYear : null;
+  const sectionsForYear = activeYear !== null ? (grouped.get(activeYear) ?? []) : [];
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-background px-6 py-16">
@@ -90,10 +95,10 @@ export function ClassSelection({ initialClasses, appName, appIcon, isAdmin }: Pr
                   <button
                     key={year}
                     type="button"
-                    onClick={() => setSelectedYear(selectedYear === year ? null : year)}
+                    onClick={() => setSelectedYear(activeYear === year ? null : year)}
                     className={cn(
                       "flex h-16 w-[calc(20%-0.5rem)] min-w-[4.5rem] items-center justify-center rounded-2xl border-2 text-xl font-bold transition-all duration-150 active:scale-95 select-none",
-                      selectedYear === year
+                      activeYear === year
                         ? "border-accent bg-accent text-accent-foreground shadow-md"
                         : "border-border bg-surface text-foreground hover:border-accent/40 hover:bg-surface-raised",
                     )}
@@ -108,7 +113,7 @@ export function ClassSelection({ initialClasses, appName, appIcon, isAdmin }: Pr
             <div
               className={cn(
                 "overflow-hidden transition-all duration-1000 ease-out",
-                selectedYear !== null ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none",
+                activeYear !== null ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none",
               )}
             >
               <div className="my-5 flex items-center gap-4">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useClock } from "@/lib/use-clock";
 import { CheckCircle, Clock } from "lucide-react";
 
 import { QuestionInput } from "@/components/question-input";
@@ -21,7 +22,10 @@ export function AnswerPageClient({
   const [question, setQuestion] = useState(initialQuestion);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [clockNow, setClockNow] = useState<number | null>(null);
+  const clockNow = useClock();
+  // Set when the server rejects a submission with 410, so the form closes
+  // immediately instead of waiting for the local countdown to agree.
+  const [serverExpired, setServerExpired] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.remove("light", "dark");
@@ -35,6 +39,7 @@ export function AnswerPageClient({
       setQuestion(p.audienceType === "INDIVIDUAL" ? p : null);
       setSubmitted(false);
       setSubmitError(null);
+      setServerExpired(false);
     };
     const onQuestionUpdate = (p: QuestionPayload) => {
       setQuestion((current) => {
@@ -46,6 +51,7 @@ export function AnswerPageClient({
       setQuestion(null);
       setSubmitted(false);
       setSubmitError(null);
+      setServerExpired(false);
     };
 
     socket.on("connect", onConnect);
@@ -65,15 +71,9 @@ export function AnswerPageClient({
     };
   }, []);
 
-  useEffect(() => {
-    setClockNow(Date.now());
-    const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, []);
-
   const timerState = useMemo(
-    () => getQuestionTimerState(question, clockNow),
-    [question, clockNow],
+    () => (serverExpired ? ({ kind: "expired" } as const) : getQuestionTimerState(question, clockNow)),
+    [question, clockNow, serverExpired],
   );
 
   async function submitAnswer(value: unknown) {
@@ -92,7 +92,7 @@ export function AnswerPageClient({
     const payload = await response.json().catch(() => null) as { error?: string } | null;
     setSubmitError(payload?.error ?? "Impossibile inviare la risposta.");
     if (response.status === 410) {
-      setClockNow(Date.now());
+      setServerExpired(true);
     }
   }
 

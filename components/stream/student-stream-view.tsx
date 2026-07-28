@@ -9,6 +9,7 @@ import QRCode from "qrcode";
 import { QuestionInput } from "@/components/question-input";
 import { getYearLabel } from "@/lib/classes";
 import { getSocket } from "@/lib/socket-client";
+import { useClock } from "@/lib/use-clock";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
@@ -41,7 +42,6 @@ export function StudentStreamView({
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [viewerQuestionExpanded, setViewerQuestionExpanded] = useState(false);
   const [viewerQuestionContentState, setViewerQuestionContentState] =
     useState<ViewerQuestionContentState>("compact");
@@ -50,6 +50,7 @@ export function StudentStreamView({
   const [viewerQuestionFeedback, setViewerQuestionFeedback] = useState("");
   const [viewerQuestionSuccess, setViewerQuestionSuccess] = useState(false);
   const [viewerQuestionNoLiveError, setViewerQuestionNoLiveError] = useState(false);
+  const clockNow = useClock();
   const questionRef = useRef<QuestionPayload | null>(initialQuestion);
   const viewerQuestionContentTimeoutRef = useRef<number | null>(null);
   const answerUrl = useMemo(() => new URL("/answer", `${baseUrl}/`).toString(), [baseUrl]);
@@ -159,16 +160,12 @@ export function StudentStreamView({
     }
   }, [status]);
 
-  useEffect(() => {
-    if (!question?.timerSeconds || !question.openedAt) { setCountdown(null); return; }
-    const tick = () => {
-      const expiresAt = new Date(question.openedAt!).getTime() + question.timerSeconds! * 1000;
-      setCountdown(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
-    };
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [question]);
+  // Derived from the shared clock instead of its own interval writing state.
+  const countdown = useMemo(() => {
+    if (!question?.timerSeconds || !question.openedAt || clockNow === null) return null;
+    const expiresAt = new Date(question.openedAt).getTime() + question.timerSeconds * 1000;
+    return Math.max(0, Math.ceil((expiresAt - clockNow) / 1000));
+  }, [question, clockNow]);
 
   useEffect(() => {
     if (!viewerQuestionSuccess && !viewerQuestionNoLiveError) return;
