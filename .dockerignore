@@ -1,0 +1,33 @@
+# Secrets — must never end up in an image layer
+.env
+.env.*
+!.env.example
+
+# Installed and generated locally; the image builds its own
+node_modules
+.next
+out
+build
+
+# Runtime state
+.data
+*.rdb
+
+# Version control and tooling
+.git
+.github
+.gitignore
+.claude
+.vscode
+.idea
+
+# Docs and local-only files
+README.md
+LICENSE
+*.md
+!prisma/**/*.md
+
+# OS noise
+.DS_Store
+*.log
+npm-debug.log*

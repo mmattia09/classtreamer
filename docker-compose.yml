@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runner
+    image: classtreamer:local
     ports:
       - "${PORT:-3000}:3000"
     env_file:
@@ -16,7 +18,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -33,7 +35,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"     # Can be removed if you don't need to access the database from outside the Docker network
+      # Loopback only: the database is reachable from this machine for
+      # development, never from the network. Drop this mapping in production.
+      # Change DB_HOST_PORT if 5432 is already taken on the host.
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -45,9 +50,10 @@ services:
       - classtreamer
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     ports:
-      - "6379:6379"     # Can be removed if you don't need to access Redis from outside the Docker network
+      # Loopback only — see the note on postgres above.
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -60,11 +66,14 @@ services:
     networks:
       - classtreamer
 
+  # Applies the Prisma schema once, before the app starts. Built from the
+  # `migrator` stage, which keeps the Prisma CLI out of the runtime image.
   db-init:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["bun", "run", "prisma:push"]
+      target: migrator
+    image: classtreamer-migrator:local
     env_file:
       - .env
     depends_on:
