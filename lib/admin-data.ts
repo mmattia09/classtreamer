@@ -45,19 +45,55 @@ export type QuestionArchiveEntry = {
 
 export type ViewerQuestionSummary = ViewerQuestionPayload;
 
+/**
+ * Upper bound on the question archive. It is a scrollable list in the UI, and
+ * the query used to be unbounded — on a long-running instance the dashboard
+ * loaded every question ever asked, on every poll.
+ */
+const QUESTION_ARCHIVE_LIMIT = 200;
+const VIEWER_QUESTIONS_LIMIT = 20;
+
 export async function getAdminOverview() {
   const streamStatus = await getCurrentStreamStatus();
   const activeQuestion = await getActiveQuestion();
-  const results = activeQuestion ? await getResultsForQuestion(activeQuestion.id) : null;
 
-  const streams = await prisma.stream.findMany({
-    include: {
-      questions: {
-        select: { id: true },
+  // Independent of each other, so they go out together instead of in sequence.
+  const [results, streams, archive, viewerQuestionRows] = await Promise.all([
+    activeQuestion ? getResultsForQuestion(activeQuestion.id) : Promise.resolve(null),
+    prisma.stream.findMany({
+      // _count instead of pulling one row per question just to call .length
+      include: { _count: { select: { questions: true } } },
+      orderBy: [{ status: "asc" }, { scheduledAt: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.question.findMany({
+      select: {
+        id: true,
+        streamId: true,
+        text: true,
+        inputType: true,
+        audienceType: true,
+        status: true,
+        createdAt: true,
+        stream: { select: { title: true } },
+        _count: { select: { answers: true } },
       },
-    },
-    orderBy: [{ status: "asc" }, { scheduledAt: "desc" }, { createdAt: "desc" }],
-  });
+      orderBy: { createdAt: "desc" },
+      take: QUESTION_ARCHIVE_LIMIT,
+    }),
+    prisma.viewerQuestion.findMany({
+      select: {
+        id: true,
+        streamId: true,
+        text: true,
+        classYear: true,
+        classSection: true,
+        createdAt: true,
+        stream: { select: { title: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: VIEWER_QUESTIONS_LIMIT,
+    }),
+  ]);
 
   const streamSummaries: StreamSummary[] = streams.map((stream) => ({
     id: stream.id,
@@ -65,7 +101,7 @@ export async function getAdminOverview() {
     embedUrl: stream.embedUrl,
     status: stream.status,
     scheduledAt: stream.scheduledAt ? stream.scheduledAt.toISOString() : null,
-    questionsCount: stream.questions.length,
+    questionsCount: stream._count.questions,
   }));
 
   let currentStream: CurrentStreamSummary | null = null;
@@ -100,14 +136,6 @@ export async function getAdminOverview() {
     }
   }
 
-  const archive = await prisma.question.findMany({
-    include: {
-      stream: true,
-      _count: { select: { answers: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
   const questionArchive: QuestionArchiveEntry[] = archive.map((question) => ({
     id: question.id,
     streamId: question.streamId,
@@ -120,17 +148,7 @@ export async function getAdminOverview() {
     answerCount: question._count.answers,
   }));
 
-  const viewerQuestions: ViewerQuestionSummary[] = (
-    await prisma.viewerQuestion.findMany({
-      include: {
-        stream: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: 20,
-    })
-  ).map((entry) => ({
+  const viewerQuestions: ViewerQuestionSummary[] = viewerQuestionRows.map((entry) => ({
     id: entry.id,
     streamId: entry.streamId,
     streamTitle: entry.stream?.title ?? null,

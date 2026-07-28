@@ -33,10 +33,10 @@ export function ResultsEmbedClient({ initialEmbed }: { initialEmbed: EmbedPayloa
     document.documentElement.classList.remove("dark");
 
     const socket = getSocket();
-    // Passing the handler to off() matters here: off("results:update") with no
-    // reference also removed the admin dashboard's listener for the same event.
+    // Passing the handler to off() matters here: off() without a reference
+    // removes every listener for the event, including other components'.
     const onEmbedUpdate = (payload: EmbedPayload) => setEmbed(payload);
-    const onResultsUpdate = (p: { questionId: string }) => {
+    const onResultsCount = (p: { questionId: string }) => {
       if (p.questionId !== currentQuestionIdRef.current) return;
       void fetch("/api/embed/state", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
@@ -49,10 +49,10 @@ export function ResultsEmbedClient({ initialEmbed }: { initialEmbed: EmbedPayloa
     };
 
     socket.on("embed:update", onEmbedUpdate);
-    socket.on("results:update", onResultsUpdate);
+    socket.on("results:count", onResultsCount);
     return () => {
       socket.off("embed:update", onEmbedUpdate);
-      socket.off("results:update", onResultsUpdate);
+      socket.off("results:count", onResultsCount);
     };
   }, []);
 

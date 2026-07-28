@@ -13,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { buildAppConfig } from "@/lib/app-config";
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getResultsForQuestion } from "@/lib/questions";
+import { getResultsForQuestions } from "@/lib/questions";
 import { getAppSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +73,7 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
 
   const appConfig = buildAppConfig(settings);
 
-  // For LIVE/ENDED: fetch question results
+  // For LIVE/ENDED: fetch question results, all in one query.
   const historyQuestions: QuestionHistoryEntry[] = [];
   if (stream.status === "LIVE" || stream.status === "ENDED") {
     const historyQs = stream.questions.filter((q) =>
@@ -81,8 +81,10 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
         ? true // ENDED: all questions
         : q.status !== "DRAFT", // LIVE: only non-DRAFT
     );
+
+    const resultsById = await getResultsForQuestions(historyQs.map((q) => q.id));
+
     for (const q of historyQs) {
-      const results = await getResultsForQuestion(q.id);
       historyQuestions.push({
         id: q.id,
         text: q.text,
@@ -90,7 +92,7 @@ export default async function StreamDetailPage({ params }: { params: Promise<{ i
         audienceType: q.audienceType,
         status: q.status,
         order: q.order,
-        results,
+        results: resultsById.get(q.id) ?? null,
       });
     }
   }

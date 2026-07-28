@@ -2,9 +2,10 @@ import { QuestionStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
-import { getResultsForQuestion, mapQuestion } from "@/lib/questions";
+import { mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
 import { getPublicUrl } from "@/lib/server-config";
+import { publishResultsNow } from "@/lib/results-broadcast";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
@@ -43,7 +44,7 @@ export async function POST(
   });
 
   broadcast("question:push", mapQuestion(question));
-  broadcast("results:update", await getResultsForQuestion(question.id));
+  await publishResultsNow(question.id);
 
   return NextResponse.redirect(new URL(`/admin/streams/${target.streamId}`, getPublicUrl()), 303);
 }

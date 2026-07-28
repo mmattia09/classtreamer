@@ -2,10 +2,9 @@ import { QuestionStatus } from "@prisma/client";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { getResultsForQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { broadcast } from "@/lib/socket-bridge";
+import { publishResultsThrottled } from "@/lib/results-broadcast";
 import { answerSchema, parseJsonBody } from "@/lib/validation";
 
 // Answers arrive from a whole class at once; this bounds one device to a
@@ -117,10 +116,9 @@ export async function POST(
     },
   });
 
-  const results = await getResultsForQuestion(id);
-  if (results) {
-    broadcast("results:update", results);
-  }
+  // Coalesced: a class answering at once produces one recompute per window
+  // rather than one per submission.
+  await publishResultsThrottled(id);
 
   return NextResponse.json({ ok: true });
 }

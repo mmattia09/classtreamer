@@ -326,6 +326,35 @@ export function buildResults(question: QuestionWithAnswers, answerIds?: string[]
   };
 }
 
+/**
+ * Results for several questions in one round trip.
+ *
+ * The stream detail page used to await getResultsForQuestion() inside a loop,
+ * which is one sequential query per question — a stream with 20 questions meant
+ * 20 round trips before the page could render.
+ */
+export async function getResultsForQuestions(questionIds: string[]) {
+  const results = new Map<string, ResultsPayload>();
+  if (questionIds.length === 0) {
+    return results;
+  }
+
+  const questions = await prisma.question.findMany({
+    where: { id: { in: questionIds } },
+    include: {
+      answers: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  for (const question of questions) {
+    results.set(question.id, buildResults(question));
+  }
+
+  return results;
+}
+
 export async function getResultsForQuestion(questionId: string) {
   const question = await prisma.question.findUnique({
     where: { id: questionId },

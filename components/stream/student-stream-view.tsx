@@ -27,6 +27,11 @@ type ViewerQuestionContentState = "compact" | "expanded" | "none";
 const VIEWER_QUESTION_CONTENT_SWAP_DELAY_MS = 140;
 const VIEWER_QUESTION_CONTAINER_TRANSITION_MS = 300;
 
+/** Socket down: poll often enough that a classroom is not left behind. */
+const OFFLINE_POLL_INTERVAL_MS = 5_000;
+/** Socket up: the events carry the changes, this only repairs missed ones. */
+const RECONCILE_INTERVAL_MS = 60_000;
+
 export function StudentStreamView({
   year,
   section,
@@ -90,12 +95,15 @@ export function StudentStreamView({
       setSubmitted(false);
       setSubmitError(null);
     }
-    function onResultsUpdate(payload: ResultsPayload) { setAnswersCount(payload.totalAnswers); }
+    // results:count carries just the counter; the full payload goes to admins only.
+    function onResultsCount(payload: { questionId: string; totalAnswers: number }) {
+      setAnswersCount(payload.totalAnswers);
+    }
 
     socket.on("question:push", onQuestionPush);
     socket.on("question:update", onQuestionUpdate);
     socket.on("question:close", onQuestionClose);
-    socket.on("results:update", onResultsUpdate);
+    socket.on("results:count", onResultsCount);
 
     if (socket.connected) onConnect();
 
@@ -106,51 +114,63 @@ export function StudentStreamView({
       socket.off("question:push", onQuestionPush);
       socket.off("question:update", onQuestionUpdate);
       socket.off("question:close", onQuestionClose);
-      socket.off("results:update", onResultsUpdate);
+      socket.off("results:count", onResultsCount);
     };
   }, [year, section]);
 
   useEffect(() => { questionRef.current = question; }, [question]);
 
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/streams/current?year=${year}&section=${section}`, { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as StreamStatusResponse;
-        setStatus(payload);
-      } catch {
-        // Network error — keep last known state
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [year, section]);
+  // Polling is a fallback for when the socket is down, not a parallel channel.
+  // It used to run unconditionally every 4s and 5s: with one display per
+  // classroom that is a constant stream of database queries even though the
+  // socket already delivers every change. While connected it drops to a slow
+  // reconciliation tick that catches anything a missed event left stale.
+  const pollIntervalMs = connected ? RECONCILE_INTERVAL_MS : OFFLINE_POLL_INTERVAL_MS;
 
   useEffect(() => {
-    const interval = setInterval(async () => {
+    let cancelled = false;
+
+    async function poll() {
       try {
-        const response = await fetch("/api/questions/active", { cache: "no-store" });
-        if (!response.ok) return;
-        const payload = (await response.json()) as { question: QuestionPayload | null; results: ResultsPayload | null };
+        const [statusResponse, questionResponse] = await Promise.all([
+          fetch(`/api/streams/current?year=${year}&section=${section}`, { cache: "no-store" }),
+          fetch("/api/questions/active", { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+
+        if (statusResponse.ok) {
+          setStatus((await statusResponse.json()) as StreamStatusResponse);
+        }
+
+        if (!questionResponse.ok) return;
+        const payload = (await questionResponse.json()) as {
+          question: QuestionPayload | null;
+          results: ResultsPayload | null;
+        };
+        if (cancelled) return;
+
         const current = questionRef.current;
-        if (
+        const changed =
           payload.question?.id !== current?.id ||
           payload.question?.timerSeconds !== current?.timerSeconds ||
-          payload.question?.openedAt !== current?.openedAt
-        ) {
+          payload.question?.openedAt !== current?.openedAt;
+
+        if (changed) {
           setQuestion(payload.question);
-          if (payload.question?.id !== current?.id) {
-            setSubmitted(false);
-          }
+          if (payload.question?.id !== current?.id) setSubmitted(false);
         }
-        if (!payload.question && current) { setQuestion(null); setSubmitted(false); }
         if (payload.results) setAnswersCount(payload.results.totalAnswers);
       } catch {
-        // Network error — keep last known state
+        // Network error — keep last known state.
       }
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+    }
+
+    const interval = setInterval(poll, pollIntervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [year, section, pollIntervalMs]);
 
   useEffect(() => {
     if (status.status !== "live") return;

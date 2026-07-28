@@ -2,8 +2,9 @@ import { QuestionStatus, StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
-import { getResultsForQuestion, mapQuestion } from "@/lib/questions";
+import { mapQuestion } from "@/lib/questions";
 import { prisma } from "@/lib/prisma";
+import { publishResultsNow } from "@/lib/results-broadcast";
 import { broadcast } from "@/lib/socket-bridge";
 import { newQuestionSchema, normalizeQuestionSettings, parseJsonBody } from "@/lib/validation";
 
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
   });
 
   broadcast("question:push", mapQuestion(question));
-  broadcast("results:update", await getResultsForQuestion(question.id));
+  await publishResultsNow(question.id);
 
   return NextResponse.json({ question: mapQuestion(question) });
 }
