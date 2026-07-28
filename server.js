@@ -5,37 +5,86 @@ const { Server } = require("socket.io");
 
 const { handleSocketConnection, setSocketServer } = require("./lib/socket-server.cjs");
 
-function validateAdminCookie(cookieHeader) {
-  if (!cookieHeader) return false;
-  const cookies = Object.fromEntries(
-    cookieHeader.split(";").map((c) => {
-      const idx = c.indexOf("=");
-      if (idx === -1) return [c.trim(), ""];
-      return [c.slice(0, idx).trim(), c.slice(idx + 1).trim()];
+const APP_NAME = "Classtreamer";
+const SESSION_COOKIE = "classtreamer-admin";
+const HOSTNAME = "0.0.0.0";
+const PORT = 3000;
+
+const dev = process.env.NODE_ENV !== "production";
+
+// Refuse to start misconfigured in production rather than silently running with
+// a guessable session secret or an admin area open to an empty password.
+// Mirrors the checks in lib/auth.ts and app/api/auth/login/route.ts.
+function assertSecureConfig() {
+  const problems = [];
+
+  const secret = process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim();
+  if (!secret || secret === "dev-secret") {
+    problems.push("SESSION_SECRET non impostato (generane uno con: openssl rand -base64 32)");
+  }
+  if (!process.env.ADMIN_PASSWORD) {
+    problems.push("ADMIN_PASSWORD non impostato");
+  }
+
+  if (problems.length === 0) return;
+
+  const message = `[security] ${problems.join("; ")}`;
+  if (dev) {
+    console.warn(`${message} — accettabile in sviluppo, obbligatorio in produzione.`);
+    return;
+  }
+
+  console.error(`${message}. Avvio interrotto.`);
+  process.exit(1);
+}
+
+function parseCookies(cookieHeader) {
+  return Object.fromEntries(
+    cookieHeader.split(";").map((entry) => {
+      const index = entry.indexOf("=");
+      if (index === -1) return [entry.trim(), ""];
+      return [entry.slice(0, index).trim(), entry.slice(index + 1).trim()];
     }),
   );
-  const token = cookies["classtreamer-admin"];
+}
+
+/** Constant-time comparison of two hex digests — see lib/auth.ts. */
+function timingSafeEqualHex(a, b) {
+  const bufferA = Buffer.from(a, "hex");
+  const bufferB = Buffer.from(b, "hex");
+  if (bufferA.length === 0 || bufferA.length !== bufferB.length) return false;
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+function validateAdminCookie(cookieHeader) {
+  if (!cookieHeader) return false;
+
+  const token = parseCookies(cookieHeader)[SESSION_COOKIE];
   if (!token) return false;
-  const dotIdx = token.lastIndexOf(".");
-  if (dotIdx === -1) return false;
-  const payload = token.slice(0, dotIdx);
-  const signature = token.slice(dotIdx + 1);
+
+  const separator = token.lastIndexOf(".");
+  if (separator === -1) return false;
+
+  const payload = token.slice(0, separator);
+  const signature = token.slice(separator + 1);
   if (payload !== "admin") return false;
-  const adminPassword = process.env.ADMIN_PASSWORD ?? "";
-  const fingerprint = crypto.createHash("sha256").update(adminPassword).digest("hex");
-  const secret = process.env.SESSION_SECRET ?? "dev-secret";
+
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(process.env.ADMIN_PASSWORD ?? "")
+    .digest("hex");
+  const secret = (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim()) || "dev-secret";
   const expected = crypto
     .createHmac("sha256", `${secret}:${fingerprint}`)
     .update(payload)
     .digest("hex");
-  return signature === expected;
+
+  return timingSafeEqualHex(signature, expected);
 }
 
-const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0";
-const port = 3000;
-const appName = "Classtreamer";
-const app = next({ dev, hostname, port });
+assertSecureConfig();
+
+const app = next({ dev, hostname: HOSTNAME, port: PORT });
 const handler = app.getRequestHandler();
 
 app.prepare().then(() => {
@@ -53,14 +102,7 @@ app.prepare().then(() => {
     handleSocketConnection(socket);
   });
 
-  if (!process.env.SESSION_SECRET) {
-    console.warn("[security] SESSION_SECRET is not set — using insecure default. Set it in production.");
-  }
-  if (!process.env.ADMIN_PASSWORD) {
-    console.warn("[security] ADMIN_PASSWORD is not set — admin login requires no password. Set it in production.");
-  }
-
-  httpServer.listen(port, hostname, () => {
-    console.log(`${appName} listening on http://${hostname}:${port}`);
+  httpServer.listen(PORT, HOSTNAME, () => {
+    console.log(`${APP_NAME} listening on http://${HOSTNAME}:${PORT}`);
   });
 });

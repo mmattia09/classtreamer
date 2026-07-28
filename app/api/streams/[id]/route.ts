@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeQuestionSettings, parseJsonBody, updateStreamSchema } from "@/lib/validation";
 
 export async function GET(
   _request: Request,
@@ -31,21 +32,12 @@ export async function PUT(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const payload = (await request.json()) as {
-    title: string;
-    embedUrl: string;
-    scheduledAt?: string;
-    targetClassIds: string[];
-    questions: Array<{
-      id: string;
-      text: string;
-      inputType: string;
-      audienceType: string;
-      timerSeconds?: number;
-      options?: string[];
-      settings?: Record<string, number>;
-    }>;
-  };
+
+  const parsed = await parseJsonBody(request, updateStreamSchema);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
+  }
+  const payload = parsed.data;
 
   const current = await prisma.stream.findUnique({
     where: { id },
@@ -68,7 +60,7 @@ export async function PUT(
   const incomingQuestionIds = new Set(
     payload.questions
       .map((question) => question.id)
-      .filter((questionId) => existingQuestionsById.has(questionId)),
+      .filter((questionId): questionId is string => !!questionId && existingQuestionsById.has(questionId)),
   );
 
   const deletableQuestionIds = current.questions
@@ -101,26 +93,15 @@ export async function PUT(
     for (const [index, question] of payload.questions.entries()) {
       const questionData = {
         text: question.text,
-        inputType: question.inputType as never,
-        audienceType: question.audienceType as never,
+        inputType: question.inputType,
+        audienceType: question.audienceType,
         timerSeconds: question.timerSeconds ?? null,
         options: question.options ?? [],
-        settings:
-          question.inputType === "SCALE"
-            ? {
-                min: question.settings?.min ?? 1,
-                max: question.settings?.max ?? 5,
-                step: question.settings?.step ?? 1,
-              }
-            : question.inputType === "WORD_COUNT"
-              ? {
-                  maxWords: question.settings?.maxWords ?? 3,
-                }
-              : undefined,
+        settings: normalizeQuestionSettings(question.inputType, question.settings),
         order: index,
       };
 
-      if (existingQuestionsById.has(question.id)) {
+      if (question.id && existingQuestionsById.has(question.id)) {
         await tx.question.update({
           where: { id: question.id },
           data: questionData,

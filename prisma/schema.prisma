@@ -36,6 +36,15 @@ enum QuestionStatus {
   CLOSED
 }
 
+/// Single row holding what the OBS overlay is currently showing. Lives in the
+/// database rather than a file on disk so it survives container restarts and
+/// stays consistent when more than one app instance is running.
+model EmbedState {
+  id        String   @id
+  state     Json
+  updatedAt DateTime @updatedAt
+}
+
 model Class {
   id          String        @id @default(cuid())
   year        Int

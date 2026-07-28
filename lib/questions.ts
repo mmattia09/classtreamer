@@ -26,10 +26,23 @@ function tokenizeWordCloudValue(value: string) {
 
 function getQuestionScaleSettings(question: { settings: Prisma.JsonValue | null }) {
   const settings = (question.settings as Record<string, number> | null) ?? {};
+  const min = Number(settings.min ?? 1);
+  const max = Number(settings.max ?? 5);
+  const step = Number(settings.step ?? 1);
+
+  // buildResults() walks `for (v = min; v <= max; v += step)`. A non-positive
+  // step or a non-finite bound would spin forever and hang the request, so the
+  // values read back from the database are clamped even though writes are now
+  // validated — rows created before that validation may still be malformed.
+  const safeMin = Number.isFinite(min) ? min : 1;
+  const safeMax = Number.isFinite(max) && max > safeMin ? max : safeMin + 1;
+  const safeStep = Number.isFinite(step) && step > 0 ? step : 1;
+
   return {
-    min: Number(settings.min ?? 1),
-    max: Number(settings.max ?? 5),
-    step: Number(settings.step ?? 1),
+    min: safeMin,
+    max: safeMax,
+    // Cap the number of buckets so a huge range cannot build a giant map.
+    step: (safeMax - safeMin) / safeStep > 1000 ? (safeMax - safeMin) / 1000 : safeStep,
   };
 }
 

@@ -4,19 +4,14 @@ import { consumeRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { broadcast } from "@/lib/socket-bridge";
 import type { ViewerQuestionPayload } from "@/lib/types";
+import { audienceQuestionSchema, parseJsonBody } from "@/lib/validation";
 
 export async function POST(request: Request) {
-  const { text, classYear, classSection, streamId } = (await request.json()) as {
-    text?: string;
-    classYear?: number;
-    classSection?: string;
-    streamId?: string;
-  };
-
-  const normalizedText = text?.trim() ?? "";
-  if (normalizedText.length < 4 || normalizedText.length > 280) {
+  const parsed = await parseJsonBody(request, audienceQuestionSchema);
+  if (!parsed.ok) {
     return NextResponse.json({ error: "Testo non valido" }, { status: 400 });
   }
+  const { text: normalizedText, classYear, classSection, streamId } = parsed.data;
 
   if (!streamId) {
     return NextResponse.json({ error: "Nessuna live attiva" }, { status: 409 });
@@ -47,8 +42,8 @@ export async function POST(request: Request) {
   const entry = await prisma.viewerQuestion.create({
     data: {
       streamId,
-      classYear: Number.isInteger(classYear) ? classYear : null,
-      classSection: classSection?.trim().toUpperCase() || null,
+      classYear: classYear ?? null,
+      classSection: classSection?.toUpperCase() || null,
       text: normalizedText,
     },
   });

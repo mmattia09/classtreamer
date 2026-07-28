@@ -1,20 +1,17 @@
-"use server";
-
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+// NOTE: this module must not carry a top-level "use server" directive. That
+// directive turns every export into a callable server action, which would have
+// exposed setStoredEmbedState() as an unauthenticated endpoint able to change
+// what the OBS overlay shows. The functions here are called from server
+// components and from route handlers that check the admin session themselves.
+import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { buildResults, mapQuestion } from "@/lib/questions";
 import type { EmbedPayload, StoredEmbedState } from "@/lib/types";
 
-const EMBED_STATE_DIR = path.join(process.cwd(), ".data");
-const EMBED_STATE_FILE = path.join(EMBED_STATE_DIR, "embed-state.json");
+const EMBED_STATE_ID = "singleton";
 
 const DEFAULT_EMBED_STATE: StoredEmbedState = { kind: "none" };
-
-async function ensureEmbedStateDir() {
-  await mkdir(EMBED_STATE_DIR, { recursive: true });
-}
 
 function normalizeStoredEmbedState(value: unknown): StoredEmbedState {
   if (!value || typeof value !== "object") {
@@ -51,16 +48,20 @@ function normalizeStoredEmbedState(value: unknown): StoredEmbedState {
 
 export async function getStoredEmbedState(): Promise<StoredEmbedState> {
   try {
-    const raw = await readFile(EMBED_STATE_FILE, "utf8");
-    return normalizeStoredEmbedState(JSON.parse(raw));
+    const row = await prisma.embedState.findUnique({ where: { id: EMBED_STATE_ID } });
+    return normalizeStoredEmbedState(row?.state);
   } catch {
+    // The overlay should degrade to "nothing on screen" rather than error out.
     return DEFAULT_EMBED_STATE;
   }
 }
 
 export async function setStoredEmbedState(state: StoredEmbedState) {
-  await ensureEmbedStateDir();
-  await writeFile(EMBED_STATE_FILE, JSON.stringify(state, null, 2), "utf8");
+  await prisma.embedState.upsert({
+    where: { id: EMBED_STATE_ID },
+    update: { state },
+    create: { id: EMBED_STATE_ID, state },
+  });
 }
 
 export async function clearStoredEmbedState() {

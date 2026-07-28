@@ -3,34 +3,62 @@ import { cookies } from "next/headers";
 
 const SESSION_COOKIE = "classtreamer-admin";
 
+// 30 days in seconds
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
 function getAdminPasswordFingerprint() {
   const adminPassword = process.env.ADMIN_PASSWORD ?? "";
   return crypto.createHash("sha256").update(adminPassword).digest("hex");
 }
 
-function sign(value: string) {
-  const secret = process.env.SESSION_SECRET;
+function getSessionSecret() {
+  const secret = process.env.SESSION_SECRET?.trim();
+
   if (!secret || secret === "dev-secret") {
     if (process.env.NODE_ENV === "production") {
       throw new Error("SESSION_SECRET must be set to a strong random value in production.");
     }
-    // In development allow the insecure fallback but warn loudly
-    console.warn("[auth] SESSION_SECRET not set — using insecure dev-secret. Set SESSION_SECRET in .env before deploying.");
+    console.warn(
+      "[auth] SESSION_SECRET non impostato — uso un valore di sviluppo insicuro. Impostalo in .env prima del deploy.",
+    );
+    return "dev-secret";
   }
+
+  return secret;
+}
+
+function sign(value: string) {
+  // The password fingerprint is mixed into the key so that changing
+  // ADMIN_PASSWORD invalidates every session already issued.
   return crypto
-    .createHmac("sha256", `${secret ?? "dev-secret"}:${getAdminPasswordFingerprint()}`)
+    .createHmac("sha256", `${getSessionSecret()}:${getAdminPasswordFingerprint()}`)
     .update(value)
     .digest("hex");
 }
 
-// 30 days in seconds
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+/**
+ * Compare two hex digests without leaking how many leading characters matched.
+ * A plain `===` returns as soon as it finds a difference, which lets an attacker
+ * reconstruct a valid signature from response timings.
+ */
+function timingSafeEqualHex(a: string, b: string) {
+  const bufferA = Buffer.from(a, "hex");
+  const bufferB = Buffer.from(b, "hex");
+
+  // timingSafeEqual throws on length mismatch, so guard first — the length of a
+  // SHA-256 digest is not secret.
+  if (bufferA.length === 0 || bufferA.length !== bufferB.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
 
 export async function createAdminSession(options?: { secure?: boolean }) {
   const payload = "admin";
   const token = `${payload}.${sign(payload)}`;
 
-  // Determine secure flag: explicit override > NODE_ENV production default
+  // Explicit override wins, otherwise default to secure in production.
   const isSecure = options?.secure ?? process.env.NODE_ENV === "production";
 
   const store = await cookies();
@@ -55,6 +83,17 @@ export async function isAdminAuthenticated() {
     return false;
   }
 
-  const [payload, signature] = value.split(".");
-  return payload === "admin" && signature === sign(payload);
+  const separator = value.lastIndexOf(".");
+  if (separator === -1) {
+    return false;
+  }
+
+  const payload = value.slice(0, separator);
+  const signature = value.slice(separator + 1);
+
+  if (payload !== "admin") {
+    return false;
+  }
+
+  return timingSafeEqualHex(signature, sign(payload));
 }

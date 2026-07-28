@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createStreamSchema, normalizeQuestionSettings, parseJsonBody } from "@/lib/validation";
 
 export async function GET() {
-  if (!await isAdminAuthenticated()) {
+  if (!(await isAdminAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const streams = await prisma.stream.findMany({
@@ -20,52 +21,34 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (!await isAdminAuthenticated()) {
+  if (!(await isAdminAuthenticated())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const payload = (await request.json()) as {
-    title: string;
-    embedUrl: string;
-    scheduledAt?: string;
-    targetClassIds: string[];
-    questions: Array<{
-      text: string;
-      inputType: string;
-      audienceType: string;
-      timerSeconds?: number;
-      options?: string[];
-      settings?: Record<string, number>;
-    }>;
-  };
+
+  const parsed = await parseJsonBody(request, createStreamSchema);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error, issues: parsed.issues }, { status: 400 });
+  }
+  const payload = parsed.data;
+  const scheduledAt = payload.scheduledAt ? new Date(payload.scheduledAt) : null;
 
   const stream = await prisma.stream.create({
     data: {
       title: payload.title,
       embedUrl: payload.embedUrl,
-      scheduledAt: payload.scheduledAt ? new Date(payload.scheduledAt) : null,
-      status: payload.scheduledAt ? StreamStatus.SCHEDULED : StreamStatus.DRAFT,
+      scheduledAt,
+      status: scheduledAt ? StreamStatus.SCHEDULED : StreamStatus.DRAFT,
       targetClasses: {
         create: payload.targetClassIds.map((classId) => ({ classId })),
       },
       questions: {
         create: payload.questions.map((question, index) => ({
           text: question.text,
-          inputType: question.inputType as never,
-          audienceType: question.audienceType as never,
+          inputType: question.inputType,
+          audienceType: question.audienceType,
           timerSeconds: question.timerSeconds ?? null,
           options: question.options ?? [],
-          settings:
-            question.inputType === "SCALE"
-              ? {
-                  min: question.settings?.min ?? 1,
-                  max: question.settings?.max ?? 5,
-                  step: question.settings?.step ?? 1,
-                }
-              : question.inputType === "WORD_COUNT"
-                ? {
-                    maxWords: question.settings?.maxWords ?? 3,
-                  }
-                : undefined,
+          settings: normalizeQuestionSettings(question.inputType, question.settings),
           order: index,
         })),
       },
