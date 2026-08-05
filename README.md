@@ -107,8 +107,8 @@ The app refuses to start in production without `ADMIN_PASSWORD` and a real
    player (YouTube, Vimeo, your own), when it starts, which classes may see it,
    and the questions you want ready. Leave the class list empty to show it
    everywhere.
-3. Open each classroom on `/` and pick year and section — the choice is
-   remembered on that device, so a projector is set up only once.
+3. Open each classroom on `/` and pick year and section. Bookmark the resulting
+   `/class/[year]/[section]` URL on the projector so it comes back on its own.
 4. Once live, push questions one at a time from the dashboard. Individual
    questions put a QR code on the displays and collect answers from phones.
 5. In OBS, add a browser source pointing at `<PUBLIC_URL>/embed/results` with a
