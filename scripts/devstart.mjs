@@ -21,9 +21,9 @@ const steps = [
     args: ["run", "prisma:generate"],
   },
   {
-    label: "Pushing Prisma schema",
+    label: "Applying database migrations",
     command: "bun",
-    args: ["run", "prisma:push"],
+    args: ["run", "prisma:migrate"],
   },
   {
     label: "Seeding database",

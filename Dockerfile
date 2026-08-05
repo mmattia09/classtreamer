@@ -23,9 +23,10 @@ WORKDIR /app
 COPY prisma.config.ts ./prisma.config.ts
 COPY prisma ./prisma
 COPY lib/app-constants.ts lib/database-url.ts ./lib/
+COPY scripts/db-migrate.mjs ./scripts/db-migrate.mjs
 RUN bunx prisma generate
 USER bun
-CMD ["bun", "run", "prisma:push"]
+CMD ["bun", "run", "prisma:migrate"]
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM oven/bun:${BUN_VERSION}-alpine AS runner

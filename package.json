@@ -11,8 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "bunx prisma generate",
-    "prisma:migrate": "bunx prisma migrate deploy",
-    "prisma:push": "bunx prisma db push",
+    "prisma:migrate": "bun ./scripts/db-migrate.mjs",
+    "prisma:migrate:new": "bunx prisma migrate dev",
     "prisma:seed": "bunx prisma db seed"
   },
   "dependencies": {

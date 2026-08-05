@@ -67,6 +67,12 @@ docker compose up -d --build
 Compose starts Postgres and Redis, applies the database schema through a
 one-shot `db-init` service, then serves the app at <http://localhost:3000>.
 
+Schema changes ship as Prisma migrations, applied on every `docker compose up`.
+A database created before migrations existed is baselined automatically on the
+first upgrade, so there is nothing to run by hand — and nothing destructive
+happens without a human: if the schema has diverged in a way that would lose
+data, `db-init` stops and the app does not start.
+
 Everything runs on an isolated `classtreamer` Docker network. Postgres and Redis
 are published on `127.0.0.1` only, so they are reachable from this machine for
 development but never from the network — drop those mappings in production. If
@@ -131,8 +137,6 @@ Questions and bug reports → [GitHub Issues](https://github.com/mmattia09/class
 
 - **Per-class questions** — a live question currently reaches every classroom
   watching; targeting a single class would help mixed assemblies.
-- **Prisma migrations** — the schema is applied with `db push`; real migrations
-  would make upgrading an existing database safer.
 - **Multi-instance realtime** — Socket.IO broadcasts within a single process, so
   running more than one app container needs the Redis adapter.
 
@@ -156,10 +160,16 @@ Before opening a PR, please make sure these pass — CI runs the same checks:
 bun run lint && bun run typecheck && bun run build
 ```
 
-Schema changes go in `prisma/schema.prisma` and are applied with
-`bun run prisma:push`. The connection URL is never written by hand: it is
-derived from the `DB_*` variables in `lib/database-url.ts`, which both the app
-and the Prisma CLI import.
+Schema changes go in `prisma/schema.prisma`. Generate a migration for them and
+commit it alongside the change:
+
+```bash
+bun run prisma:migrate:new --name descrizione_della_modifica
+```
+
+The connection URL is never written by hand: it is derived from the `DB_*`
+variables in `lib/database-url.ts`, which both the app and the Prisma CLI
+import.
 
 ## Authors and acknowledgment
 
