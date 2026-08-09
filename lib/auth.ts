@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 
+import {
+  buildSessionPayload,
+  isSessionPayloadValid,
+  splitSessionToken,
+} from "@/lib/session-token";
+
 const SESSION_COOKIE = "classtreamer-admin";
 
 // 30 days in seconds
@@ -55,7 +61,7 @@ function timingSafeEqualHex(a: string, b: string) {
 }
 
 export async function createAdminSession(options?: { secure?: boolean }) {
-  const payload = "admin";
+  const payload = buildSessionPayload(Date.now() + SESSION_MAX_AGE * 1000);
   const token = `${payload}.${sign(payload)}`;
 
   // Explicit override wins, otherwise default to secure in production.
@@ -83,15 +89,17 @@ export async function isAdminAuthenticated() {
     return false;
   }
 
-  const separator = value.lastIndexOf(".");
-  if (separator === -1) {
+  const parts = splitSessionToken(value);
+  if (!parts) {
     return false;
   }
 
-  const payload = value.slice(0, separator);
-  const signature = value.slice(separator + 1);
+  const { payload, signature } = parts;
 
-  if (payload !== "admin") {
+  // Checked before the signature so an expired token is rejected outright.
+  // Sessions issued before the expiry was added carry the bare "admin" payload
+  // and no longer validate, which means one extra login after upgrading.
+  if (!isSessionPayloadValid(payload, Date.now())) {
     return false;
   }
 

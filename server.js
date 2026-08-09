@@ -62,12 +62,21 @@ function validateAdminCookie(cookieHeader) {
   const token = parseCookies(cookieHeader)[SESSION_COOKIE];
   if (!token) return false;
 
+  // Mirrors lib/session-token.ts and lib/auth.ts: the token is
+  // `admin.<expiresAtMs>.<hmac>`, split on the last dot because the payload
+  // itself contains one. Kept duplicated because this file is CommonJS and
+  // runs before Next, so it cannot import the TypeScript modules.
   const separator = token.lastIndexOf(".");
-  if (separator === -1) return false;
+  if (separator <= 0 || separator === token.length - 1) return false;
 
   const payload = token.slice(0, separator);
   const signature = token.slice(separator + 1);
-  if (payload !== "admin") return false;
+
+  const payloadParts = payload.split(".");
+  if (payloadParts.length !== 2 || payloadParts[0] !== "admin") return false;
+
+  const expiresAt = Number(payloadParts[1]);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) return false;
 
   const fingerprint = crypto
     .createHash("sha256")
