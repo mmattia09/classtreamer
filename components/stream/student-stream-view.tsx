@@ -65,7 +65,19 @@ export function StudentStreamView({
   }, [year, section]);
 
   useEffect(() => {
-    QRCode.toDataURL(answerUrl, { width: 320, margin: 1 }).then(setQrDataUrl);
+    let cancelled = false;
+    QRCode.toDataURL(answerUrl, { width: 320, margin: 1 })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      })
+      // Without this the rejection is unhandled and the QR simply never
+      // appears, with nothing to explain why. The URL below stays readable.
+      .catch(() => {
+        if (!cancelled) setQrDataUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [answerUrl]);
 
   useEffect(() => {

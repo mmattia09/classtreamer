@@ -27,6 +27,21 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
   const maxWords = Number(question.settings?.maxWords ?? 3);
   const wordsUsed = text.trim().split(/\s+/).filter(Boolean).length;
 
+  // Radios in the same group need a shared name, otherwise arrow keys do not
+  // move between them and assistive tech does not announce them as a set.
+  const groupName = `question-${question.id}`;
+
+  // Submitting an empty answer only earns a 400 from the server, so the button
+  // stays disabled until there is something to send.
+  const hasAnswer =
+    question.inputType === "OPEN" || question.inputType === "WORD_COUNT"
+      ? text.trim().length > 0
+      : question.inputType === "SCALE"
+        ? scale !== ""
+        : question.inputType === "MULTIPLE_CHOICE"
+          ? multiple.length > 0
+          : single !== "";
+
   async function submit() {
     setSubmitting(true);
     try {
@@ -49,6 +64,7 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
       {(question.inputType === "OPEN" || question.inputType === "WORD_COUNT") && (
         <div className="space-y-2">
           <textarea
+            aria-label={question.text}
             value={text}
             onChange={(e) => {
               const v = e.target.value;
@@ -77,6 +93,8 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
           </div>
           <input
             type="range"
+            aria-label={question.text}
+            aria-valuetext={`${scale} su ${scaleRange.max}`}
             min={scaleRange.min}
             max={scaleRange.max}
             step={scaleRange.step}
@@ -89,7 +107,8 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
       )}
 
       {question.inputType === "SINGLE_CHOICE" && (
-        <div className="space-y-2">
+        <fieldset className="space-y-2">
+          <legend className="sr-only">{question.text}</legend>
           {question.options?.map((option) => (
             <label
               key={option}
@@ -97,6 +116,7 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
             >
               <input
                 type="radio"
+                name={groupName}
                 value={option}
                 checked={single === option}
                 onChange={(e) => setSingle(e.target.value)}
@@ -106,11 +126,12 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
               <span className="text-base text-foreground">{option}</span>
             </label>
           ))}
-        </div>
+        </fieldset>
       )}
 
       {question.inputType === "MULTIPLE_CHOICE" && (
-        <div className="space-y-2">
+        <fieldset className="space-y-2">
+          <legend className="sr-only">{question.text}</legend>
           {question.options?.map((option) => (
             <label
               key={option}
@@ -131,10 +152,15 @@ export function QuestionInput({ question, onSubmit, disabled }: Props) {
               <span className="text-base text-foreground">{option}</span>
             </label>
           ))}
-        </div>
+        </fieldset>
       )}
 
-      <Button onClick={submit} disabled={disabled || submitting} size="lg" className="w-full">
+      <Button
+        onClick={submit}
+        disabled={disabled || submitting || !hasAnswer}
+        size="lg"
+        className="w-full"
+      >
         {submitting ? "Invio..." : "Invia risposta"}
       </Button>
     </div>
