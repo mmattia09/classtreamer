@@ -247,7 +247,9 @@ export function StudentStreamView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ classYear: year, classSection: section, value }),
       });
-      if (response.ok) {
+      // 409 means this display already answered — that is the submitted state,
+      // not an error to apologise for.
+      if (response.ok || response.status === 409) {
         setSubmitted(true);
         return;
       }

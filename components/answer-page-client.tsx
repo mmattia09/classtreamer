@@ -84,7 +84,9 @@ export function AnswerPageClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
     });
-    if (response.ok) {
+    // 409 means this device already answered — that is the submitted state,
+    // not an error to apologise for.
+    if (response.ok || response.status === 409) {
       setSubmitted(true);
       return;
     }

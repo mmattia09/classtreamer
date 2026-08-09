@@ -1,7 +1,8 @@
-import { QuestionStatus } from "@prisma/client";
+import { Prisma, QuestionStatus } from "@prisma/client";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { attachDeviceToken, createDeviceToken, readDeviceToken } from "@/lib/device-token";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { publishResultsThrottled } from "@/lib/results-broadcast";
@@ -107,18 +108,39 @@ export async function POST(
     storedValue = { values: Array.from(new Set(selectedValues)) };
   }
 
-  await prisma.answer.create({
-    data: {
-      questionId: id,
-      classYear: classYear ?? null,
-      classSection: classSection ?? null,
-      value: storedValue,
-    },
-  });
+  // One answer per device per question, enforced by a unique index rather than
+  // a read-then-write, so two simultaneous submissions cannot both slip past.
+  const existingToken = await readDeviceToken();
+  const deviceToken = existingToken ?? createDeviceToken();
+
+  try {
+    await prisma.answer.create({
+      data: {
+        questionId: id,
+        classYear: classYear ?? null,
+        classSection: classSection ?? null,
+        value: storedValue,
+        deviceToken,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json({ error: "Hai gia' risposto a questa domanda" }, { status: 409 });
+    }
+    throw error;
+  }
 
   // Coalesced: a class answering at once produces one recompute per window
   // rather than one per submission.
   await publishResultsThrottled(id);
 
-  return NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true });
+
+  if (!existingToken) {
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.toLowerCase();
+    const secure = forwardedProto === "https" || new URL(request.url).protocol === "https:";
+    attachDeviceToken(response, deviceToken, secure);
+  }
+
+  return response;
 }

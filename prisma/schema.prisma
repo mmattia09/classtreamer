@@ -109,7 +109,12 @@ model Answer {
   classSection String?
   value        Json
   createdAt    DateTime @default(now())
+  /// Opaque per-device identifier from an httpOnly cookie. Nullable because
+  /// answers recorded before this existed have none — Postgres treats NULLs as
+  /// distinct, so those rows do not collide under the unique index below.
+  deviceToken  String?
 
+  @@unique([questionId, deviceToken])
   @@index([questionId])
   @@index([questionId, classYear, classSection])
 }
