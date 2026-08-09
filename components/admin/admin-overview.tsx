@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  Bell,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -21,33 +20,25 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import {
+  formatQuestionMeta,
+  formatViewerQuestionClassLabel,
+} from "@/components/admin/overview/format";
+import { LivePill } from "@/components/admin/overview/live-pill";
+import { NotificationStack } from "@/components/admin/overview/notification-stack";
+import { ResultsBody } from "@/components/admin/overview/results-body";
+import { useNotifications } from "@/components/admin/overview/use-notifications";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScaleChart } from "@/components/results-view";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { getYearLabel } from "@/lib/classes";
 import { formatTimerRemaining, getQuestionTimerState, isQuestionExpiredAt } from "@/lib/question-timer";
 import { getSocket } from "@/lib/socket-client";
 import { useClock } from "@/lib/use-clock";
 import type { CurrentStreamSummary, QuestionArchiveEntry, StreamSummary } from "@/lib/admin-data";
 import type { QuestionPayload, ResultsPayload, StreamStatusResponse, ViewerQuestionPayload } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
-
-/* ─── Constants ─────────────────────────────────────────────────── */
-
-const INPUT_TYPE_LABELS: Record<string, string> = {
-  OPEN: "Aperta",
-  WORD_COUNT: "Word cloud",
-  SCALE: "Scala",
-  SINGLE_CHOICE: "Singola",
-  MULTIPLE_CHOICE: "Multipla",
-};
-const AUDIENCE_TYPE_LABELS: Record<string, string> = {
-  CLASS: "Classe",
-  INDIVIDUAL: "Individuale",
-};
 
 /* ─── Types ─────────────────────────────────────────────────────── */
 
@@ -70,192 +61,6 @@ type QuestionDraft = {
   settings: { min: number; max: number; step: number; maxWords: number };
 };
 
-type Notification = {
-  id: number;
-  title: string;
-  description?: string;
-  tone: "info" | "success" | "warning";
-};
-
-/* ─── Helpers ───────────────────────────────────────────────────── */
-
-function formatViewerQuestionClassLabel(entry: ViewerQuestionPayload) {
-  if (!entry.classYear || !entry.classSection) return "Pubblico";
-  return `${getYearLabel(entry.classYear)}${entry.classSection}`;
-}
-
-function formatLiveElapsed(startedAt: string | null | undefined, now: number) {
-  if (!startedAt) return "00:00";
-  const totalSeconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function formatQuestionMeta(inputType: string, audienceType?: string) {
-  const inputLabel = INPUT_TYPE_LABELS[inputType] ?? inputType;
-  if (!audienceType) return inputLabel;
-  return `${inputLabel} · ${AUDIENCE_TYPE_LABELS[audienceType] ?? audienceType}`;
-}
-
-/* ─── Sub-components ────────────────────────────────────────────── */
-
-function LivePill({ status, startedAt }: { status: StreamStatusResponse["status"]; startedAt?: string | null }) {
-  const clock = useClock();
-  const now = status === "live" && startedAt ? clock : null;
-
-  if (status === "live") {
-    return (
-      <Badge variant="live" className="gap-1.5 tabular-nums">
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Live{now !== null && startedAt ? ` · ${formatLiveElapsed(startedAt, now)}` : ""}
-      </Badge>
-    );
-  }
-  if (status === "scheduled") return <Badge variant="warning">Programmata</Badge>;
-  return <Badge variant="secondary">Offline</Badge>;
-}
-
-/** Mini bar-chart row */
-function EntryBar({ label, value, total, max }: { label: string; value: number; total: number; max: number }) {
-  const widthPct = max > 0 ? Math.round((value / max) * 100) : 0;
-  const sharePct = total > 0 ? Math.round((value / total) * 100) : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="max-w-[55%] truncate text-xs text-foreground">{label}</span>
-        <span className="shrink-0 text-xs text-muted">{value} <span className="text-muted/60">({sharePct}%)</span></span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-surface-raised">
-        <div
-          className="h-full rounded-full bg-accent transition-all duration-500"
-          style={{ width: `${widthPct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Results panel body — no header, just data */
-function ResultsBody({
-  results,
-  embedSelectionIds,
-  featuredEmbedAnswerId,
-  onEmbedSelectionChange,
-  onFeaturedChange,
-}: {
-  results: ResultsPayload;
-  embedSelectionIds: string[];
-  featuredEmbedAnswerId: string | null;
-  onEmbedSelectionChange: (ids: string[]) => void;
-  onFeaturedChange: (id: string | null) => void;
-}) {
-  const hasEntries = results.entries.length > 0;
-  const hasSubmissions = (results.latestSubmissions?.length ?? 0) > 0;
-
-  if (hasEntries) {
-    const maxVal = Math.max(...results.entries.map((e) => e.value), 1);
-
-    // Compute mean for SCALE
-    let mean: number | null = null;
-    if (results.type === "SCALE") {
-      const totalWeight = results.entries.reduce((s, e) => s + e.value, 0);
-      if (totalWeight > 0) {
-        mean = results.entries.reduce((s, e) => s + Number(e.label) * e.value, 0) / totalWeight;
-      }
-    }
-
-    if (results.type === "SCALE") {
-      const scaleMin = results.scale?.min ?? 1;
-      const scaleMax = results.scale?.max ?? 5;
-      return (
-        <div className="flex h-full min-h-0 flex-col">
-          <ScaleChart
-            entries={results.entries}
-            average={mean}
-            scaleMin={scaleMin}
-            scaleMax={scaleMax}
-            dark={false}
-          />
-          <p className="mt-3 text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-3">
-        <div className="space-y-2.5">
-          {results.entries.map((e) => (
-            <EntryBar key={e.label} label={e.label} value={e.value} total={results.totalAnswers} max={maxVal} />
-          ))}
-        </div>
-        <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
-      </div>
-    );
-  }
-
-  if (hasSubmissions) {
-    const isOpen = ["OPEN", "WORD_COUNT"].includes(results.type);
-    return (
-      <div className="space-y-1.5">
-        {results.latestSubmissions!.map((entry) => (
-          <div key={entry.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-foreground">{entry.value || "—"}</p>
-              {entry.classLabel && <p className="text-[11px] text-muted">{entry.classLabel}</p>}
-            </div>
-            {isOpen && (
-              <div className="flex shrink-0 items-center gap-2">
-                <label title="Includi nell'embed" className="flex cursor-pointer items-center gap-1 text-[11px] text-muted">
-                  <input
-                    type="checkbox"
-                    checked={embedSelectionIds.includes(entry.id)}
-                    onChange={(e) =>
-                      onEmbedSelectionChange(
-                        e.target.checked ? [...embedSelectionIds, entry.id] : embedSelectionIds.filter((id) => id !== entry.id),
-                      )
-                    }
-                  />
-                  Embed
-                </label>
-                {results.type === "OPEN" && (
-                  <label
-                    title={featuredEmbedAnswerId === entry.id ? "Rimuovi dal primo piano" : "Metti in primo piano"}
-                    className={`flex cursor-pointer items-center gap-1 text-[11px] transition-colors ${
-                      featuredEmbedAnswerId === entry.id ? "text-accent" : "text-muted"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="featured-answer"
-                      checked={featuredEmbedAnswerId === entry.id}
-                      onChange={() =>
-                        onFeaturedChange(featuredEmbedAnswerId === entry.id ? null : entry.id)
-                      }
-                      onClick={() => {
-                        if (featuredEmbedAnswerId === entry.id) onFeaturedChange(null);
-                      }}
-                    />
-                    Featured
-                  </label>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        <p className="text-right text-xs text-muted">{results.totalAnswers} risposte totali</p>
-      </div>
-    );
-  }
-
-  return <p className="text-sm text-muted">Nessuna risposta ancora.</p>;
-}
-
-/* ─── Main component ────────────────────────────────────────────── */
-
 export function AdminOverview({ initialOverview }: { initialOverview: OverviewPayload }) {
   const [streamStatus, setStreamStatus] = useState(initialOverview.streamStatus);
   const [currentStream, setCurrentStream] = useState(initialOverview.currentStream);
@@ -276,7 +81,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
     options: "",
     settings: { min: 1, max: 10, step: 1, maxWords: 3 },
   });
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selectedResultsLoading, setSelectedResultsLoading] = useState(false);
   const [embedSelectionIds, setEmbedSelectionIds] = useState<string[]>([]);
   const [featuredEmbedAnswerId, setFeaturedEmbedAnswerId] = useState<string | null>(null);
@@ -287,6 +91,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const [currentSectionOpen, setCurrentSectionOpen] = useState(true);
   const [pastSectionOpen, setPastSectionOpen] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const { notifications, pushNotification } = useNotifications();
 
   // Embed state tracking
   const [embedQuestionId, setEmbedQuestionId] = useState<string | null>(null);
@@ -296,8 +101,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
   const embedQuestionIdRef = useRef(embedQuestionId);
   const embedSelectionIdsRef = useRef(embedSelectionIds);
   const featuredEmbedAnswerIdRef = useRef(featuredEmbedAnswerId);
-  const notificationIdRef = useRef(0);
-  const notificationTimeoutsRef = useRef<number[]>([]);
   const resultsCacheRef = useRef(
     new Map<string, ResultsPayload>(
       initialOverview.results ? [[initialOverview.results.questionId, initialOverview.results]] : [],
@@ -338,16 +141,6 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isResizingArchive]);
-
-  function pushNotification(title: string, description: string | undefined, tone: Notification["tone"]) {
-    const id = ++notificationIdRef.current;
-    setNotifications((cur) => [...cur, { id, title, description, tone }].slice(-4));
-    const t = window.setTimeout(() => {
-      setNotifications((cur) => cur.filter((n) => n.id !== id));
-      notificationTimeoutsRef.current = notificationTimeoutsRef.current.filter((x) => x !== t);
-    }, 4500);
-    notificationTimeoutsRef.current.push(t);
-  }
 
   async function refreshOverview() {
     const res = await fetch("/api/admin/overview", { cache: "no-store" });
@@ -429,11 +222,9 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       socket.off("question:close", onQuestionClose);
       socket.off("stream:status", onStreamStatus);
     };
-  }, []); // intentional: socket setup only on mount
+  }, [pushNotification]); // socket setup only on mount; pushNotification is stable
 
-  useEffect(() => {
-    return () => { notificationTimeoutsRef.current.forEach(window.clearTimeout); };
-  }, []);
+  // Notification timers are cleaned up by useNotifications().
 
   useEffect(() => {
     const iv = setInterval(refreshOverview, 12000);
@@ -1151,24 +942,7 @@ export function AdminOverview({ initialOverview }: { initialOverview: OverviewPa
       </div>
       </div>
 
-      {/* ── Notifications ── */}
-      <div className="fixed bottom-5 right-5 z-50 flex w-80 flex-col gap-2">
-        {notifications.map((n) => (
-          <div key={n.id} className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3 shadow-lg animate-slide-up">
-            <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-              n.tone === "success" ? "bg-success-subtle text-success-foreground"
-              : n.tone === "warning" ? "bg-warning-subtle text-warning-foreground"
-              : "bg-accent-subtle text-accent"
-            }`}>
-              <Bell className="h-2.5 w-2.5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">{n.title}</p>
-              {n.description ? <p className="mt-0.5 truncate text-xs text-muted">{n.description}</p> : null}
-            </div>
-          </div>
-        ))}
-      </div>
+      <NotificationStack notifications={notifications} />
     </div>
   );
 }
