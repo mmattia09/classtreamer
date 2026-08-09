@@ -3,10 +3,13 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { attachDeviceToken, createDeviceToken, readDeviceToken } from "@/lib/device-token";
+import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { publishResultsThrottled } from "@/lib/results-broadcast";
 import { answerSchema, parseJsonBody } from "@/lib/validation";
+
+const log = createLogger("answer");
 
 // Answers arrive from a whole class at once; this bounds one device to a
 // sensible burst without blocking a legitimate re-submit.
@@ -127,6 +130,7 @@ export async function POST(
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "Hai gia' risposto a questa domanda" }, { status: 409 });
     }
+    log.error("Salvataggio della risposta non riuscito", error, { questionId: id });
     throw error;
   }
 

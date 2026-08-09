@@ -2,8 +2,11 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 
 import { createAdminSession } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
 import { consumeRateLimit, resetRateLimit } from "@/lib/rate-limit";
 import { safeEqual } from "@/lib/safe-compare";
+
+const log = createLogger("auth");
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { password?: unknown } | null;
@@ -29,7 +32,7 @@ export async function POST(request: Request) {
   // Without this guard an unset ADMIN_PASSWORD compares against "", so posting
   // an empty password would grant an admin session.
   if (!expected) {
-    console.error("[auth] ADMIN_PASSWORD non impostato: login amministratore disabilitato.");
+    log.error("ADMIN_PASSWORD non impostato: login amministratore disabilitato");
     return NextResponse.json({ error: "Admin login not configured" }, { status: 503 });
   }
 

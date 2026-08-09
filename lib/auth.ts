@@ -1,11 +1,14 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 
+import { createLogger } from "@/lib/logger";
 import {
   buildSessionPayload,
   isSessionPayloadValid,
   splitSessionToken,
 } from "@/lib/session-token";
+
+const log = createLogger("auth");
 
 const SESSION_COOKIE = "classtreamer-admin";
 
@@ -24,8 +27,8 @@ function getSessionSecret() {
     if (process.env.NODE_ENV === "production") {
       throw new Error("SESSION_SECRET must be set to a strong random value in production.");
     }
-    console.warn(
-      "[auth] SESSION_SECRET non impostato — uso un valore di sviluppo insicuro. Impostalo in .env prima del deploy.",
+    log.warn(
+      "SESSION_SECRET non impostato: uso un valore di sviluppo insicuro. Impostalo in .env prima del deploy.",
     );
     return "dev-secret";
   }

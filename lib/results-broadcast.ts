@@ -1,7 +1,10 @@
 import "server-only";
 
+import { createLogger } from "@/lib/logger";
 import { getResultsForQuestion } from "@/lib/questions";
 import { broadcast, broadcastToAdmins } from "@/lib/socket-bridge";
+
+const log = createLogger("results-broadcast");
 
 /**
  * Coalesced publishing of question results.
@@ -57,15 +60,19 @@ export async function publishResultsThrottled(questionId: string) {
   const entry: Pending = { timer: null, queued: false };
   pending.set(questionId, entry);
 
-  await publish(questionId).catch(() => {
-    // A failed broadcast must not fail the student's submission.
+  await publish(questionId).catch((error) => {
+    // A failed broadcast must not fail the student's submission: the answer is
+    // already stored, only the live update is lost.
+    log.error("Pubblicazione dei risultati non riuscita", error, { questionId });
   });
 
   entry.timer = setTimeout(() => {
     const current = pending.get(questionId);
     pending.delete(questionId);
     if (current?.queued) {
-      void publish(questionId).catch(() => undefined);
+      void publish(questionId).catch((error) => {
+        log.error("Pubblicazione differita non riuscita", error, { questionId });
+      });
     }
   }, THROTTLE_MS);
 

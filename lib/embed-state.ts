@@ -5,9 +5,12 @@
 // components and from route handlers that check the admin session themselves.
 import "server-only";
 
+import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { buildResults, mapQuestion } from "@/lib/questions";
 import type { EmbedPayload, StoredEmbedState } from "@/lib/types";
+
+const log = createLogger("embed-state");
 
 const EMBED_STATE_ID = "singleton";
 
@@ -50,8 +53,11 @@ export async function getStoredEmbedState(): Promise<StoredEmbedState> {
   try {
     const row = await prisma.embedState.findUnique({ where: { id: EMBED_STATE_ID } });
     return normalizeStoredEmbedState(row?.state);
-  } catch {
-    // The overlay should degrade to "nothing on screen" rather than error out.
+  } catch (error) {
+    // The overlay degrades to "nothing on screen" rather than erroring out —
+    // a blank OBS source beats a stack trace on the projector — but the reason
+    // still needs to reach whoever is running the stream.
+    log.error("Stato dell'overlay non leggibile, mostro schermata vuota", error);
     return DEFAULT_EMBED_STATE;
   }
 }

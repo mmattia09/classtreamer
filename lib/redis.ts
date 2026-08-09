@@ -1,6 +1,9 @@
 import Redis from "ioredis";
 
+import { createLogger } from "@/lib/logger";
 import { getRedisUrl } from "@/lib/server-config";
+
+const log = createLogger("redis");
 
 const globalForRedis = globalThis as unknown as {
   redis?: Redis;
@@ -15,11 +18,22 @@ function createRedisClient() {
     maxRetriesPerRequest: 1,
   });
 
-  client.on("error", () => {
-    // Redis may be unavailable during build or local boot. Callers below treat
-    // a failure as "no rate limiting" rather than as a request error, so this
-    // handler only exists to stop an unhandled 'error' event from crashing the
-    // process.
+  // Redis may be unavailable during build or local boot, and callers treat a
+  // failure as "no rate limiting" rather than as a request error — so this
+  // handler mainly exists to stop an unhandled 'error' event from crashing the
+  // process. It logs at most once per outage instead of on every retry, which
+  // would otherwise flood the log while Redis is down.
+  let reportedDown = false;
+
+  client.on("error", (error) => {
+    if (reportedDown) return;
+    reportedDown = true;
+    log.error("Connessione a Redis non disponibile", error, { url: getRedisUrl() });
+  });
+
+  client.on("ready", () => {
+    if (reportedDown) log.info("Connessione a Redis ristabilita");
+    reportedDown = false;
   });
 
   return client;

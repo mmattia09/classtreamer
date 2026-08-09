@@ -1,7 +1,10 @@
+import { createLogger } from "@/lib/logger";
 import { getConnectedRedis } from "@/lib/redis";
 
 const RATE_LIMIT = 100;
 const RATE_LIMIT_WINDOW_SECONDS = 10;
+
+const log = createLogger("rate-limit");
 
 export async function consumeRateLimit(
   key: string,
@@ -34,10 +37,12 @@ export async function consumeRateLimit(
       current,
       retryAfter: ttl > 0 ? ttl : windowSeconds,
     };
-  } catch {
+  } catch (error) {
     // Fail open: Redis being down should not lock students out of answering.
     // Login brute-force protection degrades with it, which is why server.js
-    // refuses to start in production without a real ADMIN_PASSWORD.
+    // refuses to start in production without a real ADMIN_PASSWORD — and why
+    // this is logged rather than swallowed.
+    log.warn("Rate limit non applicato, Redis non raggiungibile", { key }, error);
     return {
       allowed: true,
       current: 0,
@@ -59,7 +64,9 @@ export async function resetRateLimit(key: string) {
   try {
     const redis = await getConnectedRedis();
     await redis.del(key);
-  } catch {
-    // Ignore Redis failures: auth can continue without the reset.
+  } catch (error) {
+    // Not fatal: a successful login just leaves its attempt counter to expire
+    // on its own.
+    log.debug("Reset del contatore non riuscito", { key, error: String(error) });
   }
 }
