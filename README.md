@@ -129,6 +129,27 @@ The app refuses to start in production without `ADMIN_PASSWORD` and a real
 | `/admin/classes`          | Classes and branding                      |
 | `/api/health`             | Health check — reports database and Redis |
 
+## Backups
+
+Everything lives in the `postgres_data` Docker volume: the classes, the streams
+and every answer ever given. There is no automatic backup, and `docker compose
+down -v` deletes that volume without asking — so take a dump before upgrading or
+before touching the stack:
+
+```bash
+docker compose exec -T postgres pg_dump -U "$DB_USER" "$DB_NAME" | gzip > classtreamer-$(date +%F).sql.gz
+```
+
+To restore into an empty database:
+
+```bash
+gunzip -c classtreamer-2026-05-01.sql.gz | docker compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME"
+```
+
+Run both with the project's `.env` loaded, or substitute the values by hand. The
+dump is plain SQL and includes the migration history, so a restored database
+carries on from where it left off.
+
 ## Support
 
 Questions and bug reports → [GitHub Issues](https://github.com/mmattia09/classtreamer/issues).
