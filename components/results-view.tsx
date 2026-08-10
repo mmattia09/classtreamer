@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -14,6 +15,7 @@ import {
 } from "recharts";
 
 import type { ResultsPayload } from "@/lib/types";
+import { buildWordCloud } from "@/lib/word-cloud";
 
 /* ── Embed palette ────────────────────────────────────────────── */
 const ACCENT = "#7C8CFF";
@@ -114,95 +116,41 @@ export function ScaleChart({
 }
 
 /* ───────────────────────────────────────────────────────────────
-   Word cloud — 3 visual tiers
+   Word cloud
 ─────────────────────────────────────────────────────────────── */
 function WordCloud({ entries }: { entries: { label: string; value: number }[] }) {
-  const maxVal = Math.max(...entries.map((e) => e.value), 1);
-  const sorted = [...entries].sort((a, b) => b.value - a.value).slice(0, 22);
+  const items = useMemo(() => buildWordCloud(entries), [entries]);
 
-  const top = sorted.slice(0, 3);
-  const mid = sorted.slice(3, 11);
-  const rest = sorted.slice(11);
-
-  let colorIdx = 0;
-  function nextColor() {
-    return PALETTE[colorIdx++ % PALETTE.length];
+  if (items.length === 0) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <p className="text-[1.6vw] text-white/30">In attesa delle prime risposte…</p>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-5">
-      {/* Tier 1 — big words */}
-      <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2">
-        {top.map((entry, idx) => {
-          const ratio = entry.value / maxVal;
-          const size = Math.sqrt(ratio) * 4 + 1.2;
-          const color = nextColor();
-          return (
-            <span
-              key={entry.label}
-              className="inline-block animate-word-in font-bold leading-none tracking-tight whitespace-nowrap"
-              style={{
-                fontSize: `${size}rem`,
-                color,
-                animationDelay: `${idx * 70}ms`,
-                animationFillMode: "both",
-              }}
-            >
-              {entry.label}
-            </span>
-          );
-        })}
-      </div>
-
-      {/* Tier 2 — mid words with alternating y-offset */}
-      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
-        {mid.map((entry, idx) => {
-          const ratio = entry.value / maxVal;
-          const size = Math.sqrt(ratio) * 4 + 1.2;
-          const color = nextColor();
-          const yOffset = idx % 2 === 0 ? -6 : 6;
-          return (
-            <span
-              key={entry.label}
-              className="inline-block animate-word-in font-bold leading-none tracking-tight whitespace-nowrap"
-              style={{
-                fontSize: `${size}rem`,
-                color,
-                transform: `translateY(${yOffset}px)`,
-                animationDelay: `${(idx + 3) * 70}ms`,
-                animationFillMode: "both",
-              }}
-            >
-              {entry.label}
-            </span>
-          );
-        })}
-      </div>
-
-      {/* Tier 3 — small words */}
-      {rest.length > 0 && (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-          {rest.map((entry, idx) => {
-            const ratio = entry.value / maxVal;
-            const size = Math.sqrt(ratio) * 4 + 1.2;
-            const color = nextColor();
-            return (
-              <span
-                key={entry.label}
-                className="inline-block animate-word-in font-bold leading-none tracking-tight whitespace-nowrap"
-                style={{
-                  fontSize: `${size}rem`,
-                  color,
-                  animationDelay: `${(idx + 11) * 70}ms`,
-                  animationFillMode: "both",
-                }}
-              >
-                {entry.label}
-              </span>
-            );
-          })}
-        </div>
-      )}
+    // items-center + content-center so the cloud sits in the middle of the
+    // available height instead of hugging the top with dead space below.
+    <div className="flex h-full w-full flex-wrap items-center justify-center content-center gap-x-[1.7vw] gap-y-[1.1vh] overflow-hidden px-[2vw]">
+      {items.map((item, index) => (
+        <span
+          key={item.label}
+          className="inline-block animate-word-in font-bold leading-[1.05] tracking-tight"
+          style={{
+            fontSize: `${item.fontSize}vw`,
+            color: PALETTE[item.colorIndex % PALETTE.length],
+            // Larger words carry more of the message, so they read as solid
+            // while the long tail recedes.
+            opacity: 0.55 + item.weight * 0.45,
+            animationDelay: `${Math.min(index * 45, 900)}ms`,
+            animationFillMode: "both",
+          }}
+          title={`${item.label}: ${item.value}`}
+        >
+          {item.label}
+        </span>
+      ))}
     </div>
   );
 }
