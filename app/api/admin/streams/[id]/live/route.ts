@@ -2,8 +2,8 @@ import { StreamStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
+import { redirectToPath } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { getPublicUrl } from "@/lib/server-config";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
@@ -36,5 +36,5 @@ export async function POST(
     liveStartedAt: stream.updatedAt.toISOString(),
   });
 
-  return NextResponse.redirect(new URL(`/admin/streams/${id}`, getPublicUrl()), 303);
+  return redirectToPath(`/admin/streams/${id}`);
 }

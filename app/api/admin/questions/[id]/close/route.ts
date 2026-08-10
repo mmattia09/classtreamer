@@ -2,8 +2,8 @@ import { QuestionStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
+import { redirectToPath } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { getPublicUrl } from "@/lib/server-config";
 import { broadcast } from "@/lib/socket-bridge";
 
 export async function POST(
@@ -24,5 +24,5 @@ export async function POST(
 
   broadcast("question:close", {});
 
-  return NextResponse.redirect(new URL(`/admin/streams/${question.streamId}`, getPublicUrl()), 303);
+  return redirectToPath(`/admin/streams/${question.streamId}`);
 }

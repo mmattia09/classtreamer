@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/auth";
 import { mapQuestion } from "@/lib/questions";
+import { redirectToPath } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { getPublicUrl } from "@/lib/server-config";
 import { publishResultsNow } from "@/lib/results-broadcast";
 import { broadcast } from "@/lib/socket-bridge";
 
@@ -46,5 +46,5 @@ export async function POST(
   broadcast("question:push", mapQuestion(question));
   await publishResultsNow(question.id);
 
-  return NextResponse.redirect(new URL(`/admin/streams/${target.streamId}`, getPublicUrl()), 303);
+  return redirectToPath(`/admin/streams/${target.streamId}`);
 }

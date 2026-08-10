@@ -2,7 +2,13 @@ import { Prisma, QuestionStatus } from "@prisma/client";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { attachDeviceToken, createDeviceToken, readDeviceToken } from "@/lib/device-token";
+import {
+  attachDeviceToken,
+  createDeviceToken,
+  isSecureRequest,
+  readDeviceToken,
+  shouldAttachDeviceToken,
+} from "@/lib/device-token";
 import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -11,10 +17,24 @@ import { answerSchema, parseJsonBody } from "@/lib/validation";
 
 const log = createLogger("answer");
 
-// Answers arrive from a whole class at once; this bounds one device to a
-// sensible burst without blocking a legitimate re-submit.
-const ANSWER_RATE_LIMIT = 10;
-const ANSWER_RATE_WINDOW_SECONDS = 10;
+/**
+ * Rate limiting is keyed on the device, not on the IP address.
+ *
+ * A school NATs every student phone behind one public address, so a per-IP
+ * limit counts a whole class as a single client: 25 students answering at once
+ * would see most of their submissions rejected. Duplicate answers are already
+ * prevented by the unique index on (questionId, deviceToken), so this only has
+ * to stop one device from hammering.
+ */
+const ANSWER_DEVICE_LIMIT = 5;
+const ANSWER_DEVICE_WINDOW_SECONDS = 10;
+
+/**
+ * A second, much wider limit per IP, kept only as a flood guard. It has to sit
+ * above what a large school can legitimately produce in the window.
+ */
+const ANSWER_IP_LIMIT = 300;
+const ANSWER_IP_WINDOW_SECONDS = 10;
 
 export async function POST(
   request: Request,
@@ -30,15 +50,26 @@ export async function POST(
   }
   const { classYear, classSection, value } = parsed.data;
 
+  // Read before rate limiting so the device key is available for it.
+  const existingToken = await readDeviceToken();
+  const deviceToken = existingToken ?? createDeviceToken();
+
   const headerStore = await headers();
   const ip = headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  const allowed = await checkRateLimit(
-    `rate:answer:${ip}:${id}`,
-    ANSWER_RATE_LIMIT,
-    ANSWER_RATE_WINDOW_SECONDS,
-  );
 
-  if (!allowed) {
+  const [deviceAllowed, ipAllowed] = await Promise.all([
+    checkRateLimit(
+      `rate:answer:device:${deviceToken}:${id}`,
+      ANSWER_DEVICE_LIMIT,
+      ANSWER_DEVICE_WINDOW_SECONDS,
+    ),
+    checkRateLimit(`rate:answer:ip:${ip}`, ANSWER_IP_LIMIT, ANSWER_IP_WINDOW_SECONDS),
+  ]);
+
+  if (!deviceAllowed || !ipAllowed) {
+    if (!ipAllowed) {
+      log.warn("Limite per IP raggiunto sulle risposte", { ip });
+    }
     return NextResponse.json({ error: "Troppi invii ravvicinati" }, { status: 429 });
   }
 
@@ -113,9 +144,6 @@ export async function POST(
 
   // One answer per device per question, enforced by a unique index rather than
   // a read-then-write, so two simultaneous submissions cannot both slip past.
-  const existingToken = await readDeviceToken();
-  const deviceToken = existingToken ?? createDeviceToken();
-
   try {
     await prisma.answer.create({
       data: {
@@ -140,10 +168,8 @@ export async function POST(
 
   const response = NextResponse.json({ ok: true });
 
-  if (!existingToken) {
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.toLowerCase();
-    const secure = forwardedProto === "https" || new URL(request.url).protocol === "https:";
-    attachDeviceToken(response, deviceToken, secure);
+  if (shouldAttachDeviceToken(existingToken)) {
+    attachDeviceToken(response, deviceToken, isSecureRequest(request));
   }
 
   return response;

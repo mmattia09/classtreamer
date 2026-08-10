@@ -38,3 +38,21 @@ export function attachDeviceToken(response: NextResponse, token: string, secure:
   });
   return response;
 }
+
+/** Should this response carry a freshly minted device cookie? */
+export function shouldAttachDeviceToken(existingToken: string | null) {
+  return existingToken === null;
+}
+
+/** True when the request looks like it came over HTTPS, for the cookie flag. */
+export function isSecureRequest(request: Request) {
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.toLowerCase();
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0].trim() === "https";
+  }
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
