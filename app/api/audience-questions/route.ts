@@ -10,7 +10,7 @@ import {
 import { createLogger } from "@/lib/logger";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
-import { broadcast } from "@/lib/socket-bridge";
+import { broadcastToAdmins } from "@/lib/socket-bridge";
 import type { ViewerQuestionPayload } from "@/lib/types";
 import { audienceQuestionSchema, parseJsonBody } from "@/lib/validation";
 
@@ -96,7 +96,11 @@ export async function POST(request: Request) {
     createdAt: entry.createdAt.toISOString(),
   };
 
-  broadcast("viewer-question:new", payload);
+  // Admins only. This carries the question text and the class it came from,
+  // and it is consumed solely by the dashboard — sending it to everyone meant
+  // every student's browser received every question the moment it was written,
+  // before the control room had even seen it.
+  broadcastToAdmins("viewer-question:new", payload);
 
   const response = NextResponse.json({ ok: true, question: payload });
 
