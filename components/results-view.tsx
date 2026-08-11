@@ -15,6 +15,11 @@ import {
 } from "recharts";
 
 import type { ResultsPayload } from "@/lib/types";
+import {
+  clampFeaturedText,
+  featuredAnswerFontVw,
+  secondaryAnswerFontVw,
+} from "@/lib/overlay-typography";
 import { buildWordCloud } from "@/lib/word-cloud";
 
 /* ── Embed palette ────────────────────────────────────────────── */
@@ -194,11 +199,13 @@ function DonutChart({
             align="right"
             verticalAlign="middle"
             iconType="circle"
-            iconSize={10}
+            iconSize={18}
             formatter={(value: string, entry: { payload?: { pct?: number; value?: number } }) => (
-              <span style={{ color: "rgba(255,255,255,0.80)", fontSize: "0.85rem" }}>
+              // Viewport-relative: the legend has to be readable from the back
+              // of a room, not just on the laptop driving OBS.
+              <span style={{ color: "rgba(255,255,255,0.85)", fontSize: "1.25vw", lineHeight: 2 }}>
                 {value}
-                <span style={{ color: "rgba(255,255,255,0.45)", marginLeft: "0.4rem" }}>
+                <span style={{ color: "rgba(255,255,255,0.5)", marginLeft: "0.6vw" }}>
                   {entry.payload?.pct}%
                 </span>
               </span>
@@ -223,21 +230,24 @@ function HorizontalBars({
   const max = Math.max(...entries.map((e) => e.value), 1);
 
   return (
-    <div className="flex h-full flex-col justify-center gap-5">
+    // justify-around spreads the rows over the full height rather than leaving
+    // a block in the middle with dead space above and below. Sizes are
+    // viewport-relative so they hold up on a projector.
+    <div className="flex h-full flex-col justify-around gap-[1.5vh] py-[2vh]">
       {entries.map((entry, idx) => {
         const pct = Math.round((entry.value / Math.max(totalAnswers, 1)) * 100);
         const barPct = (entry.value / max) * 100;
         const color = PALETTE[idx % PALETTE.length];
         return (
-          <div key={entry.label} className="space-y-2">
+          <div key={entry.label} className="space-y-[1.2vh]">
             <div className="flex items-baseline justify-between gap-6">
-              <span className="truncate text-xl font-medium text-white/85">{entry.label}</span>
-              <div className="flex shrink-0 items-baseline gap-3">
-                <span className="text-3xl font-bold tabular-nums text-white">{entry.value}</span>
-                <span className="text-sm font-medium tabular-nums text-white/40">{pct}%</span>
+              <span className="truncate text-[1.8vw] font-medium text-white/85">{entry.label}</span>
+              <div className="flex shrink-0 items-baseline gap-[0.8vw]">
+                <span className="text-[2.6vw] font-bold tabular-nums text-white">{entry.value}</span>
+                <span className="text-[1.2vw] font-medium tabular-nums text-white/40">{pct}%</span>
               </div>
             </div>
-            <div className="relative h-[4px] overflow-hidden rounded-full bg-white/8">
+            <div className="relative h-[0.7vh] overflow-hidden rounded-full bg-white/8">
               <div
                 className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
                 style={{ width: `${barPct}%`, background: color }}
@@ -262,62 +272,83 @@ function OpenAnswers({
 }) {
   const submissions = results.latestSubmissions ?? [];
   const featured = submissions.find((e) => e.id === featuredAnswerId) ?? submissions[0];
-  const secondary = submissions.filter((e) => e.id !== (featured?.id ?? null)).slice(0, 10);
+
+  // Six instead of ten: on a projector, fewer answers set larger beats a dense
+  // grid nobody can read from the back of the room.
+  const secondary = submissions.filter((e) => e.id !== (featured?.id ?? null)).slice(0, 6);
+
+  const featuredText = featured ? clampFeaturedText(featured.value) : "";
+  const featuredVw = featuredAnswerFontVw(featuredText);
+  const secondaryVw = secondaryAnswerFontVw(secondary.length);
 
   if (!featured) {
     return (
-      <div className="flex h-full items-center">
-        <p className="text-lg text-white/35">Nessuna risposta.</p>
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[1.6vw] text-white/30">In attesa delle prime risposte…</p>
       </div>
     );
   }
 
   return (
-    <div className="grid h-full gap-16 xl:grid-cols-[1.15fr_0.85fr]">
-      {/* Featured — giant quote */}
-      <div className="relative flex flex-col justify-center">
-        <div
-          className="absolute -left-2 -top-6 select-none font-serif text-[12rem] font-bold leading-none text-white/[0.06]"
+    <div
+      className={
+        secondary.length > 0
+          ? "grid h-full min-h-0 gap-[4vw] xl:grid-cols-[1.35fr_0.65fr]"
+          : "grid h-full min-h-0"
+      }
+    >
+      {/* Featured answer, sized to its own length so it fills the column
+          without ever running past it. */}
+      <blockquote className="relative flex min-h-0 flex-col justify-center">
+        <span
+          className="pointer-events-none absolute -left-[1vw] -top-[3vh] select-none font-serif font-bold leading-none text-white/[0.07]"
+          style={{ fontSize: `${featuredVw * 3}vw` }}
           aria-hidden
         >
           &ldquo;
-        </div>
-        <blockquote className="relative">
-          <p className="text-4xl font-medium leading-[1.35] text-white">
-            {featured.value}
-          </p>
-          {featured.classLabel && (
-            <footer className="mt-8 flex items-center gap-3 text-white/45">
-              <span className="h-px w-10 bg-white/20" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.3em]">
-                {featured.classLabel}
-              </span>
-            </footer>
-          )}
-        </blockquote>
-      </div>
-
-      {/* Secondary — 2-column grid */}
-      <div className="flex min-h-0 flex-col">
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/35">
-          Altre risposte
+        </span>
+        <p
+          className="relative font-medium leading-[1.25] tracking-tight text-white"
+          style={{ fontSize: `${featuredVw}vw` }}
+        >
+          {featuredText}
         </p>
-        <div className="grid grid-cols-2 gap-x-4 divide-y-0">
-          {secondary.map((entry) => (
-            <div key={entry.id} className="py-2 border-b border-white/[0.06]">
-              <p className="text-base leading-relaxed text-white/80 line-clamp-2">{entry.value}</p>
-              {entry.classLabel && (
-                <p className="mt-0.5 text-[11px] uppercase tracking-wider text-white/30">
-                  {entry.classLabel}
+        {featured.classLabel && (
+          <footer className="relative mt-[2.5vh] flex items-center gap-4 text-white/45">
+            <span className="h-px w-[3vw] bg-white/25" />
+            <span className="text-[0.85vw] font-semibold uppercase tracking-[0.3em]">
+              {featured.classLabel}
+            </span>
+          </footer>
+        )}
+      </blockquote>
+
+      {/* Secondary answers — one column, spread over the full height instead of
+          a small block stacked at the top. */}
+      {secondary.length > 0 && (
+        <div className="flex min-h-0 flex-col border-l border-white/[0.07] pl-[2vw]">
+          <p className="mb-[2vh] shrink-0 text-[0.8vw] font-semibold uppercase tracking-[0.3em] text-white/35">
+            Altre risposte
+          </p>
+          <ul className="flex min-h-0 flex-1 flex-col justify-around gap-[1vh]">
+            {secondary.map((entry) => (
+              <li key={entry.id} className="border-b border-white/[0.06] pb-[1.2vh]">
+                <p
+                  className="leading-[1.35] text-white/80 line-clamp-3"
+                  style={{ fontSize: `${secondaryVw}vw` }}
+                >
+                  {entry.value}
                 </p>
-              )}
-            </div>
-          ))}
-          {secondary.length === 0 && (
-            <p className="col-span-2 py-4 text-sm text-white/30">Nessun&apos;altra risposta.</p>
-          )}
+                {entry.classLabel && (
+                  <p className="mt-[0.5vh] text-[0.75vw] uppercase tracking-wider text-white/30">
+                    {entry.classLabel}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
+      )}
     </div>
   );
 }
