@@ -9,6 +9,10 @@ import {
 } from "@/lib/device-token";
 import { createLogger } from "@/lib/logger";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import {
+  AUDIENCE_QUESTION_IP_WINDOW_SECONDS,
+  getAudienceQuestionIpLimit,
+} from "@/lib/rate-limit-config";
 import { prisma } from "@/lib/prisma";
 import { broadcastToAdmins } from "@/lib/socket-bridge";
 import type { ViewerQuestionPayload } from "@/lib/types";
@@ -24,9 +28,7 @@ const log = createLogger("audience-questions");
 const QUESTION_DEVICE_LIMIT = 3;
 const QUESTION_DEVICE_WINDOW_SECONDS = 60;
 
-/** Wide per-IP limit kept only as a flood guard. */
-const QUESTION_IP_LIMIT = 120;
-const QUESTION_IP_WINDOW_SECONDS = 60;
+// The per-IP flood guard and its window live in lib/rate-limit-config.ts.
 
 export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, audienceQuestionSchema);
@@ -57,7 +59,11 @@ export async function POST(request: Request) {
       QUESTION_DEVICE_LIMIT,
       QUESTION_DEVICE_WINDOW_SECONDS,
     ),
-    consumeRateLimit(`rate:viewer-question:ip:${ip}`, QUESTION_IP_LIMIT, QUESTION_IP_WINDOW_SECONDS),
+    consumeRateLimit(
+      `rate:viewer-question:ip:${ip}`,
+      getAudienceQuestionIpLimit(),
+      AUDIENCE_QUESTION_IP_WINDOW_SECONDS,
+    ),
   ]);
 
   if (!deviceLimit.allowed || !ipLimit.allowed) {

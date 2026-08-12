@@ -12,6 +12,7 @@ import {
 import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { ANSWER_IP_WINDOW_SECONDS, getAnswerIpLimit } from "@/lib/rate-limit-config";
 import { publishResultsThrottled } from "@/lib/results-broadcast";
 import { answerSchema, parseJsonBody } from "@/lib/validation";
 
@@ -29,12 +30,8 @@ const log = createLogger("answer");
 const ANSWER_DEVICE_LIMIT = 5;
 const ANSWER_DEVICE_WINDOW_SECONDS = 10;
 
-/**
- * A second, much wider limit per IP, kept only as a flood guard. It has to sit
- * above what a large school can legitimately produce in the window.
- */
-const ANSWER_IP_LIMIT = 300;
-const ANSWER_IP_WINDOW_SECONDS = 10;
+// The per-IP flood guard and its window live in lib/rate-limit-config.ts,
+// where they can be tuned for the size of the school.
 
 export async function POST(
   request: Request,
@@ -63,7 +60,7 @@ export async function POST(
       ANSWER_DEVICE_LIMIT,
       ANSWER_DEVICE_WINDOW_SECONDS,
     ),
-    checkRateLimit(`rate:answer:ip:${ip}`, ANSWER_IP_LIMIT, ANSWER_IP_WINDOW_SECONDS),
+    checkRateLimit(`rate:answer:ip:${ip}`, getAnswerIpLimit(), ANSWER_IP_WINDOW_SECONDS),
   ]);
 
   if (!deviceAllowed || !ipAllowed) {
