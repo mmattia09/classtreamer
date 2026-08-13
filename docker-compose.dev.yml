@@ -1,0 +1,23 @@
+# Development overlay.
+#
+# In development the app runs on the host with `bun run dev`, not in a
+# container, so it needs Postgres and Redis reachable on 127.0.0.1 — the main
+# Compose file does not publish them, because in production nothing outside the
+# Compose network should reach them.
+#
+# Not named docker-compose.override.yml on purpose: Compose loads that one
+# automatically, which would quietly re-open the ports in production too. This
+# has to be asked for:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+#
+# `bun run dev:start` does exactly that.
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"

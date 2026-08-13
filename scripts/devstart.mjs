@@ -13,7 +13,20 @@ const steps = [
   {
     label: "Starting local services",
     command: "docker",
-    args: ["compose", "up", "-d", "postgres", "redis"],
+    // The dev overlay publishes Postgres and Redis on 127.0.0.1. The app runs
+    // on the host here, not in a container, so it cannot reach them over the
+    // Compose network.
+    args: [
+      "compose",
+      "-f",
+      "docker-compose.yml",
+      "-f",
+      "docker-compose.dev.yml",
+      "up",
+      "-d",
+      "postgres",
+      "redis",
+    ],
   },
   {
     label: "Generating Prisma client",

@@ -1,10 +1,12 @@
+# Project name, so containers, network and volumes are prefixed predictably
+# regardless of the directory this file is checked out into.
+name: classtreamer
+
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runner
-    image: classtreamer:local
+    # Pulled, not built. Pin a version with APP_TAG=1.1.0 in .env to control
+    # when you upgrade; the default follows the latest push to main.
+    image: ghcr.io/mmattia09/classtreamer:${APP_TAG:-latest}
     ports:
       - "${PORT:-3000}:3000"
     env_file:
@@ -34,11 +36,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      # Loopback only: the database is reachable from this machine for
-      # development, never from the network. Drop this mapping in production.
-      # Change DB_HOST_PORT if 5432 is already taken on the host.
-      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+    # Not published by default: the app reaches Postgres over the Compose
+    # network, so nothing outside needs to. Uncomment only to inspect the
+    # database from this machine — it binds to loopback, never the network.
+    # For local development use docker-compose.dev.yml instead, which adds
+    # these mappings without editing this file.
+    # ports:
+    #   - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -51,9 +55,9 @@ services:
 
   redis:
     image: redis:8-alpine
-    ports:
-      # Loopback only — see the note on postgres above.
-      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    # Not published by default — see the note on postgres above.
+    # ports:
+    #   - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -66,14 +70,11 @@ services:
     networks:
       - classtreamer
 
-  # Applies the Prisma schema once, before the app starts. Built from the
-  # `migrator` stage, which keeps the Prisma CLI out of the runtime image.
+  # Applies the Prisma migrations once, before the app starts. Same image as the
+  # app, with a different command — the Prisma CLI ships in it.
   db-init:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: migrator
-    image: classtreamer-migrator:local
+    image: ghcr.io/mmattia09/classtreamer:${APP_TAG:-latest}
+    command: ["bun", "run", "prisma:migrate"]
     env_file:
       - .env
     depends_on:

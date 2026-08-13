@@ -90,11 +90,17 @@ cp .env.example .env
 # Edit .env — at minimum:
 #   ADMIN_PASSWORD → the control room password
 #   SESSION_SECRET → openssl rand -base64 32
-docker compose up -d --build
+docker compose up -d
 ```
 
-Compose starts Postgres and Redis, applies the database schema through a
-one-shot `db-init` service, then serves the app at <http://localhost:3000>.
+Compose pulls the published image rather than building it, starts Postgres
+and Redis, applies the database schema through a one-shot `db-init` service,
+then serves the app at <http://localhost:3000>.
+
+One image serves both jobs: running the app, and applying migrations before it
+starts — `db-init` is the same image with a different command. `APP_TAG`
+selects the version: leave it at `latest` to follow `main`, or pin a release
+such as `1.1.0` to control when you upgrade.
 
 Schema changes ship as Prisma migrations, applied on every `docker compose up`.
 A database created before migrations existed is baselined automatically on the
@@ -103,12 +109,12 @@ happens without a human: if the schema has diverged in a way that would lose
 data, `db-init` stops and the app does not start.
 
 Everything runs on an isolated `classtreamer` Docker network. Postgres and Redis
-are published on `127.0.0.1` only, so they are reachable from this machine for
-development but never from the network — drop those mappings in production. If
-5432 or 6379 are already taken, set `DB_HOST_PORT` and `REDIS_HOST_PORT` rather
-than editing the Compose file.
+are **not published to the host**: the app reaches them over that network, and
+nothing outside needs to. The mappings are present but commented out in
+`docker-compose.yml` if you want to inspect the database from the machine
+itself; they bind to `127.0.0.1`, never to the network.
 
-The app image is also built by GitHub Actions and published to
+The image is built by GitHub Actions and published to
 `ghcr.io/mmattia09/classtreamer` on every push to `main` and every `v*.*.*` tag.
 
 ### Configuration
@@ -118,13 +124,14 @@ have working defaults.
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
+| `APP_TAG` | `latest` | Image tag Compose pulls. Pin a release to control upgrades. |
 | `ADMIN_PASSWORD` | — | Control room password. A value starting with `$2` is treated as a bcrypt hash. **Required.** |
 | `SESSION_SECRET` | — | Signs the admin session cookie (`openssl rand -base64 32`). **Required.** |
 | `SESSION_COOKIE_SECURE` | auto | `true` to force the `Secure` flag. Empty decides from the request protocol. |
 | `PUBLIC_URL` | `http://localhost:3000` | Public URL of the app. Used for the QR code shown on the displays. |
 | `PORT` | `3000` | Host port the app is published on. |
 | `DB_NAME` · `DB_USER` · `DB_PASSWORD` | `classtreamer` | Postgres credentials. The connection URL is derived from them. |
-| `DB_HOST_PORT` · `REDIS_HOST_PORT` | `5432` · `6379` | Host ports for the containers, loopback only. Change them on a collision. |
+| `DB_HOST_PORT` · `REDIS_HOST_PORT` | `5432` · `6379` | Host ports used only by the development overlay. Change them on a collision. |
 | `ANSWER_IP_RATE_LIMIT` | `3000` | Answers accepted from one IP address per 10s. See below. |
 | `AUDIENCE_QUESTION_IP_RATE_LIMIT` | `600` | Audience questions accepted from one IP address per minute. |
 | `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error`. Logs are one JSON object per line. |
@@ -250,34 +257,13 @@ carries on from where it left off.
 ## Updating
 
 ```bash
-git pull && docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
-Migrations run automatically before the app starts. Take a dump first — see
-above. Changing `ADMIN_PASSWORD`, or upgrading across a release that alters the
+That follows whatever `APP_TAG` points at. If you pinned a release, bump it in
+`.env` first. Migrations run automatically before the app starts, and a dump is
+worth taking first — see above. Changing `ADMIN_PASSWORD`, or upgrading across a release that alters the
 session format, signs you out; log in again and carry on.
-
-## Troubleshooting
-
-**Signing in bounces me back to the login page.** The session cookie is bound to
-the origin you are using. Reach the app by the same hostname you configured, and
-avoid mixing `localhost` and `127.0.0.1` in the same session.
-
-**The container never becomes healthy.** `/api/health` reports the database and
-Redis separately — `docker compose logs app` shows which one is failing, as a
-JSON line with a `scope` field.
-
-**`db-init` exits and the app never starts.** The schema on disk has diverged
-from the migrations in a way that would lose data. That stop is deliberate: take
-a dump, then reconcile by hand.
-
-**Postgres refuses to start after an upgrade.** Changing the Postgres major
-version needs a dump and restore; the old data directory is not read by a newer
-server.
-
-**Students get "troppi invii ravvicinati".** If it is one student spamming, that
-is the per-device limit working. If it is a whole room at once, raise
-`ANSWER_IP_RATE_LIMIT`.
 
 ## Support
 
@@ -296,6 +282,19 @@ bun run dev:start
 `bun run dev:start` starts Postgres and Redis, applies the schema, seeds it and
 runs the app. It recreates `.env` from `.env.example` every time, so use
 `bun run dev` once the environment is set up the way you want it.
+
+In development the app runs on the host rather than in a container, so it needs
+Postgres and Redis reachable on `127.0.0.1`. `docker-compose.dev.yml` adds those
+mappings and `dev:start` passes it automatically. It is deliberately not named
+`docker-compose.override.yml`, which Compose would load on its own and quietly
+re-open the ports in production too.
+
+The Compose file pulls the published image and has no build context, so
+building locally is a plain `docker build`:
+
+```bash
+docker build -t classtreamer .
+```
 
 Before opening a PR, please make sure these pass — CI runs the same checks:
 
@@ -331,6 +330,7 @@ OpenAI Codex, then reviewed, hardened and updated with
 
 ## Project status
 
-**Stable / maintenance.** The app covers what its author needs for school
-assemblies and is used for real ones. Bug fixes and small improvements land as
-needed; there is no planned feature work.
+**Stable, not yet in production.** The app is feature-complete for what its
+author needs from a school assembly and the critical paths are covered by tests
+and load testing, but it has not run a real assembly yet. Bug fixes and small
+improvements land as needed; there is no planned feature work.
