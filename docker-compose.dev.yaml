@@ -5,11 +5,11 @@
 # Compose file does not publish them, because in production nothing outside the
 # Compose network should reach them.
 #
-# Not named docker-compose.override.yml on purpose: Compose loads that one
+# Not named docker-compose.override.yaml on purpose: Compose loads that one
 # automatically, which would quietly re-open the ports in production too. This
 # has to be asked for:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
+#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d postgres redis
 #
 # `bun run dev:start` does exactly that.
 

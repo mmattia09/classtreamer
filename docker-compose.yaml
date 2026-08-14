@@ -4,7 +4,7 @@ name: classtreamer
 
 services:
   app:
-    # Pulled, not built. Pin a version with APP_TAG=1.1.0 in .env to control
+    # Pulled, not built. Pin a version with APP_TAG=1.2.0 in .env to control
     # when you upgrade; the default follows the latest push to main.
     image: ghcr.io/mmattia09/classtreamer:${APP_TAG:-latest}
     ports:
@@ -39,7 +39,7 @@ services:
     # Not published by default: the app reaches Postgres over the Compose
     # network, so nothing outside needs to. Uncomment only to inspect the
     # database from this machine — it binds to loopback, never the network.
-    # For local development use docker-compose.dev.yml instead, which adds
+    # For local development use docker-compose.dev.yaml instead, which adds
     # these mappings without editing this file.
     # ports:
     #   - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"

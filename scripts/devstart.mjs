@@ -19,9 +19,9 @@ const steps = [
     args: [
       "compose",
       "-f",
-      "docker-compose.yml",
+      "docker-compose.yaml",
       "-f",
-      "docker-compose.dev.yml",
+      "docker-compose.dev.yaml",
       "up",
       "-d",
       "postgres",
